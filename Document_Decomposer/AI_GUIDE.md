@@ -4,6 +4,15 @@ This guide is for future AI agents working in this project. Read it before chang
 
 For the current project snapshot and open problems, read `HANDOFF.md` first.
 
+> **方向变更（2026-06，先读 HANDOFF「目标与技术路线」）**：项目从“自底向上摘要金字塔”
+> 转向“**给卡片织跨篇关联网（只连不合）+ 用时现拼**”。两点影响本指南的取舍：
+> 1. `evidence_atoms` 现在的定位是“**可溯源证据，最后钻取原文时才用**”——只需**不编造 +
+>    逐字引文**，不再追求 minimal_claim 措辞完美。`scripts/ai_verify_evidence_atoms.py`
+>    （claim↔quote 检查官）保留为**偶尔抽查工具**，不作为流水线强制闸；不要再为措辞漂移
+>    上更强模型/反复重跑。
+> 2. 跨篇“关联层 / 灵感层 / 出稿层”是**规划中、尚未实现**——本指南描述的是已建成的
+>    单篇抽取链，别把规划当现状。
+
 ## Current Truth
 
 Project root:
@@ -65,9 +74,8 @@ Deferred by default: Chinese/non-English papers and non-article files such as su
 ## Directory Roles
 
 ```text
-data/docling/json        S01-S05 Docling JSON inputs
-data/docling/md          S01-S05 Docling Markdown inputs
-data/docling_validation  S06-S13 Docling JSON/Markdown inputs
+data/docling/json        Docling JSON inputs (currently S02, S05-S06, S08-S19)
+data/docling/md          Docling Markdown inputs (same set as json)
 data/ingest              PDF ingest manifest and staged stable PDF names
 library                  Current generated paper packages
 reports                  Quality reports and regression records
@@ -137,16 +145,10 @@ py scripts\build_clean_package.py `
   --report reports\clean_package_S01_S05.csv
 ```
 
-For S06-S13 Docling validation inputs:
-
-```powershell
-py scripts\build_clean_package.py `
-  --json-dir data\docling_validation `
-  --md-dir data\docling_validation `
-  --output-dir library `
-  --pdf-dir ..\paper_pool\paper `
-  --report reports\clean_package_S06_S13.csv
-```
+All current Docling inputs live in `data\docling\json` and `data\docling\md`
+(there is no separate `data\docling_validation` directory). The single command
+above builds every available paper; scope to specific papers with the per-paper
+runners (`run_from_paper_downloads.py` / `run_pipeline.py --paper-id Sxx`).
 
 Run section organization for one paper:
 

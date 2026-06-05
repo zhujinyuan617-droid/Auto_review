@@ -43,7 +43,7 @@ Docling version: 2.97.0
 Docling Core version: 2.78.1
 Docling IBM Models version: 3.13.3
 Docling Parse version: 6.2.0
-Python: cpython-312 (3.12.8)
+Python: cpython-312 (3.12.10)
 Platform: Windows-11-10.0.26200-SP0
 ```
 

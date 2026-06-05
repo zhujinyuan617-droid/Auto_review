@@ -37,7 +37,7 @@ source. New work should use `paper_pool`.
 
 - sources: downloader, Zotero, manual PDF drops, and future external sources
 - exact duplicate detection with SHA-256
-- possible duplicate detection with DOI-like keys, filenames, metadata, and optional AI review
+- possible duplicate detection with DOI-like keys, filenames, and metadata
 - source tracking and import reports
 - candidate review before a file is promoted into `paper/`
 - stable human-readable filenames for the formal PDF pool
@@ -68,7 +68,6 @@ paper_pool intake
   - dedupe
   - classify candidates
   - report
-  - optional AI review of uncertain body/non-body cases
         |
         v
 paper_pool\paper

@@ -108,4 +108,8 @@ Document_Decomposer\start_assistant.bat
 
 1. Keep the English-paper workflow stable across more real papers.
 2. Reduce hand-written metadata rules and make completeness checks stricter.
-3. Design matrix export and cross-paper synthesis after the current workflow is stable.
+3. Build the cross-paper **link network** over the literature cards (unified
+   vocabulary + theme/agreement/contradiction/gap links), then an idea-generation
+   layer and grounded drafting on top. This replaces the earlier "summary
+   pyramid / matrix export" idea — see `Document_Decomposer/HANDOFF.md`
+   ("目标与技术路线") for the full route and the keep/discard/add plan.

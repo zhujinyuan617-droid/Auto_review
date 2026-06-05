@@ -14,10 +14,12 @@ PDF
 -> literature_card.json
 -> evidence_atoms.json
 -> paper_syntheses.json
--> literature matrix / review draft
+(the single-paper extraction chain above is built; cross-paper linking,
+ idea generation, and grounded drafting are planned — see HANDOFF.md
+ "目标与技术路线")
 ```
 
-For AI agents and detailed operating rules, read [AI_GUIDE.md](AI_GUIDE.md) first. For the current project snapshot and open problems, read [HANDOFF.md](HANDOFF.md).
+For AI agents and detailed operating rules, read [AI_GUIDE.md](AI_GUIDE.md) first. For the current project snapshot, the planned technical route, and open problems, read [HANDOFF.md](HANDOFF.md).
 
 Directory roles:
 

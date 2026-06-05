@@ -22,8 +22,10 @@ that, archive them on GitHub instead of deleting them immediately.
 
 Checked on 2026-06-05:
 
-- `Auto_review` exists on GitHub, default branch `main`, and is currently empty.
-- This local `Auto_review` folder does not yet contain a `.git` directory.
+- `Auto_review` exists on GitHub with default branch `main`.
+- This local folder is already a Git repo (`.git` present), initialized and
+  pushed, with `main` tracking `origin/main`. The initial-push steps below are
+  historical and have already been run.
 - Local large/generated data exists and must stay out of Git:
   - `paper_pool/paper/` contains hundreds of PDFs.
   - `Document_Decomposer/envs/` contains the local Docling runtime.
@@ -75,35 +77,37 @@ Document_Decomposer/reports/
 *.zip
 ```
 
-## Initial Push Commands
+## Initial Push Commands (historical — already completed)
 
-Run from this folder:
+The repository has already been initialized and pushed. These commands are kept
+only as a record of how the monorepo was first created:
 
 ```powershell
 cd D:\Project\Vibe_coding\Auto_review
 git init
 git branch -M main
 git remote add origin https://github.com/zhujinyuan617-droid/Auto_review.git
-git status --ignored
+git add .
+git commit -m "Create Auto Review monorepo"
+git push -u origin main
 ```
 
-Before adding files, confirm that large/local folders appear as ignored. Then:
+## Routine Sync
+
+For ongoing work, before staging confirm large/local folders still show as
+ignored, then commit and push:
 
 ```powershell
+git status --ignored
 git add .
 git status
+git commit -m "<message>"
+git push
 ```
 
 Check that `paper_pool/paper/`, `Document_Decomposer/envs/`, `*.pdf`,
 `*.zip`, `*.local.json`, generated `data/`, `library/`, `reports/`, and
-`state/` files are not staged.
-
-Then commit and push:
-
-```powershell
-git commit -m "Create Auto Review monorepo"
-git push -u origin main
-```
+`state/` files are never staged.
 
 ## Fresh Clone Smoke Test
 
