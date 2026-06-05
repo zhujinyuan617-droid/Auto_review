@@ -1,27 +1,85 @@
 # Document Decomposer Handoff
 
-This is the current handoff snapshot. For the fastest reproducible check, read `QUICK_HANDOFF.md` first. For the 10-paper English batch record, read `BATCH_TEST_HANDOFF.md`. For durable operating rules and broader commands, read `AI_GUIDE.md`.
+这个文件用于给接手项目的人或 AI 快速了解当前项目。
 
-## Current Stable State
+## 项目简介
 
-Stable commit:
+`Document_Decomposer` 是 `Auto_review` 里的文献处理模块。它的目标是把下载好的论文 PDF 变成可以被综述写作使用的结构化资料。
+
+基本流程是：
 
 ```text
-1d1ef3e Stabilize English batch processing
+PDF
+-> Docling JSON/Markdown
+-> clean paper package
+-> ai_sections.json
+-> reading_blocks.json / reading.md
+-> literature_card.json
+-> evidence_atoms.json
+-> paper_syntheses.json
+-> 后续矩阵导出 / 跨论文综合
 ```
 
-Current verified scope:
+现在的重点是英文论文。中文/非英文论文和非论文文件暂时默认延后处理。
+
+## 当前代码和数据状态
+
+仓库：
 
 ```text
-S05/S06/S08/S09: validated smoke/baseline papers.
-S10-S19: 10-paper English-mainline batch completed and validated.
+https://github.com/zhujinyuan617-droid/Auto_review
 ```
 
-The latest 10-paper batch finished with:
+本地分支：
 
 ```text
-Docling: ok for all 10
-clean: ok for all 10 after Windows atomic-write retry fix
+main
+```
+
+本地生成数据不进 Git：
+
+```text
+Document_Decomposer/config/ai.local.json
+Document_Decomposer/data/
+Document_Decomposer/library/
+Document_Decomposer/reports/
+Document_Decomposer/envs/
+paper_pool/paper/
+```
+
+不要打印或提交 `config/ai.local.json`，里面有本地 API key。
+
+## 当前已经跑通的内容
+
+单篇烟雾测试：
+
+```text
+S05
+```
+
+已知 S05 状态：
+
+```text
+title: Hindered settling velocity and microstructure in suspensions of solid spheres with moderate Reynolds numbers
+doi: 10.1063/1.2764109
+content_blocks: 191
+reading_blocks: 168
+literature_card: ok
+evidence_atoms: ok
+paper_syntheses: ok
+```
+
+英文批量测试：
+
+```text
+S10-S19
+```
+
+S10-S19 已完成：
+
+```text
+Docling: ok
+clean: ok
 sections: ok
 reading: ok
 literature_card: ok
@@ -31,106 +89,15 @@ final validators: ok
 AI fallback warnings: none
 ```
 
-Current product focus:
+详细批测记录在：
 
 ```text
-English journal articles first.
-Chinese/non-English papers and non-article files remain deferred by default.
-Matrix export and cross-paper synthesis are still postponed.
+BATCH_TEST_HANDOFF.md
 ```
 
-## Current Pipeline
+## 当前主要文件
 
-```text
-PDF
--> ingest manifest / staged PDF
--> Docling JSON/Markdown
--> clean paper package
--> ai_sections.json
--> reading_blocks.json / reading.md
--> literature_card.json
--> evidence_atoms.json
--> paper_syntheses.json
--> matrix / review draft
-```
-
-The architecture principle is:
-
-```text
-AI makes semantic judgments.
-Scripts execute, validate, repair, write atomically, cache AI calls, and stabilize final outputs.
-```
-
-Do not hand-edit generated JSON to pass validation. Fix prompt, script logic, validation, fallback, or canonicalization, then rerun.
-
-## Current Known-Good Set
-
-The canonical one-paper smoke test remains:
-
-```text
-library/S05
-```
-
-Known-good S05 status:
-
-```text
-title: Hindered settling velocity and microstructure in suspensions of solid spheres with moderate Reynolds numbers
-year: 2007
-doi: 10.1063/1.2764109
-content_blocks: 191
-evidence_items: 191
-ai_sections: 8 sections, 191/191 blocks covered
-reading_blocks: 168, 191/191 source blocks covered
-literature_card: ok, ai_warnings=[]
-evidence_atoms: ok, 14 atoms, ai_warnings=[]
-paper_syntheses: ok, 4 syntheses, ai_warnings=[]
-```
-
-S05 proved the current end-to-end route:
-
-```text
-PDF -> Docling -> clean -> sections -> reading -> card -> evidence_atoms -> paper_syntheses
-```
-
-Current processing scope:
-
-```text
-Default mainline: English journal articles.
-Deferred: Chinese/non-English papers and non-article files such as subject indexes.
-```
-
-`run_from_paper_downloads.py --all` now means all English-mainline records by default. Deferred records can still be processed explicitly with `--paper-id Sxx`, or included in batch experiments with `--include-deferred`.
-
-The broader English batch is documented in `BATCH_TEST_HANDOFF.md`:
-
-```text
-S10-S19 all passed validate_reading, validate_card, validate_evidence_atoms, and validate_paper_syntheses.
-Final validation report directory: reports/pipeline_20260605_002646_913830_7392_7af66809
-```
-
-## Current Repository State
-
-This project is now managed in the monorepo:
-
-```text
-https://github.com/zhujinyuan617-droid/Auto_review
-```
-
-The local repository is a Git repo on branch `main`. Generated data remains local and ignored.
-
-Recent important commits:
-
-```text
-1d1ef3e Stabilize English batch processing
-6a28b6c Improve metadata and review synthesis quality
-8cec49a Limit default processing to English papers
-f812dfe Add interactive AI assistant launcher
-7d8cf5b Document end-to-end handoff checklist
-```
-
-## Important Files
-
-Implementation modules:
+核心模块：
 
 ```text
 src/docdecomp/package_builder.py
@@ -143,11 +110,12 @@ src/docdecomp/io_utils.py
 src/docdecomp/library_index.py
 ```
 
-AI scripts:
+主要脚本：
 
 ```text
 scripts/ingest_paper_downloads.py
 scripts/run_from_paper_downloads.py
+scripts/run_pipeline.py
 scripts/interactive_assistant.py
 scripts/ai_organize_sections.py
 scripts/ai_build_reading_blocks.py
@@ -156,168 +124,83 @@ scripts/ai_build_evidence_atoms.py
 scripts/ai_build_paper_syntheses.py
 ```
 
-Validators and auditors:
+验证脚本：
 
 ```text
 scripts/validate_reading_blocks.py
 scripts/validate_literature_card.py
 scripts/validate_evidence_atoms.py
 scripts/validate_paper_syntheses.py
-scripts/audit_synthesis_stability.py
 ```
 
-Runner:
+## 当前遇到的问题
 
-```text
-scripts/run_pipeline.py
-```
+1. 元数据识别还不够稳。
 
-Current runner status:
+   title、DOI、year、journal 现在主要靠脚本规则从首页、文件名、页眉页脚里识别。S10-S19 能跑通，但这个方式还可能误判。
 
-```text
---stage all includes clean, sections, reading, card, evidence_atoms, paper_syntheses, and final validators.
---dry-run prints planned commands and does not refresh library/index.csv.
-```
+2. 不应该继续堆单篇论文的人工规则。
 
-## Stage Responsibilities
+   例如为了某篇论文补一个期刊名或出版社规则，短期能解决问题，长期会变得难维护。
 
-`ingest_paper_downloads.py`
+3. 验证器还缺少完整性检查。
 
-- Input: downloaded PDFs, usually `..\paper_pool\paper`
-- Output: `data/ingest/paper_manifest.json`, `data/ingest/pdfs/Sxx_*.pdf`, `reports/paper_ingest_report.csv`
-- Script role: compute SHA-256, skip exact duplicate files, assign stable `Sxx` ids to new PDFs, flag possible same-paper duplicates by DOI-like filename keys and token overlap.
-- Scope role: classify new/old records with `processing_profile`, `language_hint`, and `profile_reason`; Chinese/non-English and non-article records are marked deferred.
+   目前 validators 能检查已经生成的结果是否合格，但还需要明确检查：用户指定的每篇论文是否都真的完成了所有必需阶段。
 
-`run_from_paper_downloads.py`
+4. 全库大批量处理还没有完成。
 
-- Input: ingest manifest and staged PDFs.
-- Output: missing Docling JSON/Markdown, then normal `library/Sxx` packages through `run_pipeline.py`.
-- Script role: check Docling availability, run Docling for missing outputs, copy outputs into `data/docling/json` and `data/docling/md`, call `run_pipeline.py`.
-- Docling runtime: defaults to PATH `docling`, then `envs/docling/Scripts/docling.exe`; see `DOCLING_INSTALL.md`.
-- Windows compatibility: sets Hugging Face symlink-disabling env vars before launching subprocesses.
-- Safety rule: records with `possible_duplicate_of` are skipped unless `--include-possible-duplicates` is provided.
-- Scope rule: `--all` skips deferred records unless `--include-deferred` is provided; explicit `--paper-id Sxx` remains allowed for targeted experiments.
+   已经验证了 S10-S19 十篇英文论文，但还没有对整个 `paper_pool/paper` 做完整批处理。
 
-`ai_organize_sections.py`
+5. 内存和并行策略还没有系统设计。
 
-- Input: `content_blocks.json`, `metadata_candidates.json`
-- Output: `ai_sections.json`
-- AI role: assign clean blocks to logical paper sections.
-- Script role: validate coverage and unknown ids.
+   10 篇并行已经测试过，但更大批量时还需要根据剩余内存、PDF 长度、Docling 成本和 AI 调用成本来调度。
 
-`ai_build_reading_blocks.py`
+6. 矩阵导出还没有实现。
 
-- Input: `content_blocks.json`, `ai_sections.json`
-- Output: `reading_blocks.plan.json`, `reading_blocks.json`, `reading.md`, `merge_report.json`
-- AI role: plan semantic grouping of Docling layout blocks.
-- Script role: materialize text from source blocks, repair coverage, merge obvious continuations, render reading markdown.
+   当前已有 `literature_card.json`、`evidence_atoms.json`、`paper_syntheses.json`，但还没有把它们导出成综述矩阵。
 
-`ai_build_literature_card.py`
+7. 跨论文综合还没有实现。
 
-- Input: `reading_blocks.json`, `metadata_candidates.json`
-- Output: `literature_card.json`
-- AI role: extract review-card fields with exact evidence quotes.
-- Script role: normalize fields, repair missing evidence where a direct matching reading block exists, infer missing evidence-backed `review_section_hints`, clean overlong section labels into review-style headings, validate evidence references, retry with validator feedback, fallback if needed.
-- Debug option: `--save-failed-attempts` writes failed candidates with validation summaries.
+   现在的 `paper_syntheses.json` 是单篇论文内部综合，不是多篇论文之间的综合。
 
-`ai_build_evidence_atoms.py`
+8. 中文/非英文论文路线暂时延后。
 
-- Input: `reading_blocks.json`
-- Output: `evidence_atoms.json`
-- AI role: select hard evidence atoms.
-- Script role: validate atom ids, reading block ids, source ids, pages, exact quote membership, and repair near-miss quotes to exact substrings from the cited reading block when safe.
-- Debug option: `--save-failed-attempts` writes failed candidates with validation summaries.
+   当前产品重点是英文论文。中文论文后续可以单独设计。
 
-`ai_build_paper_syntheses.py`
+9. 新电脑迁移仍需要注意本地配置。
 
-- Input: `evidence_atoms.json`
-- Output: `paper_syntheses.json`
-- AI role: propose article-internal syntheses using evidence atom ids only.
-- Script role: validate support, add missing numeric-support atoms when a synthesis scope cites values available in other atoms, enforce numeric scope support, optionally enforce baseline coverage, canonicalize final stable output.
+   代码在 GitHub 上，但 AI key、Docling 环境、本地 PDF、生成结果都不进 Git。换电脑时需要重新配置。
 
-## AI Configuration
+## 常用检查命令
 
-Do not print `config/ai.local.json`.
-
-The local working configuration uses an OpenAI-compatible DeepSeek endpoint. The key is local only.
-
-Known working redacted values:
-
-```text
-base_url: https://api.deepseek.com
-model: deepseek-v4-flash
-```
-
-`https://platform.deepseek.com/v1` produced HTTP 405 and should not be used as the chat-completions base URL.
-
-The AI config loader rejects missing values and unedited placeholders from `config/ai.example.json`.
-
-For user-friendly setup, run:
+从仓库根目录：
 
 ```powershell
-.\start_assistant.bat
+git status --short --ignored
 ```
 
-The interactive assistant has a non-AI bootstrap layer. It can configure DeepSeek, OpenAI, or a custom OpenAI-compatible `base_url`; it tests the endpoint only after `base_url`, API key, and model are present.
-
-## Current Commands To Recheck
-
-Use `QUICK_HANDOFF.md` for the complete step-by-step smoke check.
-
-Minimal S05 validation:
+从 `Document_Decomposer`：
 
 ```powershell
-cd D:\Project\Vibe_coding\Auto_review\Document_Decomposer
+py -m compileall src scripts
+```
+
+验证 S05：
+
+```powershell
 py scripts\run_pipeline.py --paper-id S05 --stage validate --library-dir library --reports-dir reports
 ```
 
-Focused validators:
+验证 S10-S19：
 
 ```powershell
-py scripts\validate_reading_blocks.py --paper-id S05 --library-dir library --report reports\reading_blocks_quality.csv
-py scripts\validate_literature_card.py --paper-id S05 --library-dir library --report reports\literature_card_quality.csv
-py scripts\validate_evidence_atoms.py --paper-id S05 --library-dir library --report reports\evidence_atoms_quality.csv
-py scripts\validate_paper_syntheses.py --paper-id S05 --library-dir library --report reports\paper_syntheses_quality.csv
+py scripts\run_pipeline.py --paper-id S10 --paper-id S11 --paper-id S12 --paper-id S13 --paper-id S14 --paper-id S15 --paper-id S16 --paper-id S17 --paper-id S18 --paper-id S19 --stage validate --library-dir library --reports-dir reports
 ```
 
-Diagnostic reruns for prompt problems:
+## 交接时先看
 
-```powershell
-py scripts\ai_build_literature_card.py --paper-id S05 --library-dir library --output-name literature_card.debug.json --max-ai-attempts 2 --force --save-failed-attempts
-py scripts\ai_build_evidence_atoms.py --paper-id S05 --library-dir library --output-name evidence_atoms.debug.json --max-ai-attempts 2 --force --save-failed-attempts
+```text
+QUICK_HANDOFF.md
+BATCH_TEST_HANDOFF.md
+AI_GUIDE.md
 ```
-
-Remove temporary `*debug*`, `*optimized*`, and `*.failed.json` files after diagnosis unless the user wants to preserve them.
-
-## Current Caveats
-
-- Cross-paper synthesis has not been implemented.
-- Matrix/review draft export has not been implemented.
-- Larger full-library runs beyond the S10-S19 English batch have not been completed.
-- Current product focus is English papers. The Chinese long-PDF route is intentionally deferred, even though targeted experiments may still be run by explicit paper id.
-- Possible duplicates are skipped by default by `run_from_paper_downloads.py`.
-- Generated `data/`, `library/`, `reports/`, and local runtimes are ignored and not part of Git history.
-- `config/ai.local.json` is ignored and must stay local.
-- AI outputs can vary by provider/model. If card/evidence falls back, use `--save-failed-attempts` and adjust prompt/normalization instead of editing generated JSON by hand.
-- Metadata extraction currently uses deterministic heuristics in `package_builder.py`. These heuristics helped the S10-S19 batch pass, but do not keep adding paper-specific or publisher-specific exceptions casually. The next metadata design should separate candidates, provenance, authoritative DOI metadata, and low-confidence review flags.
-- Current final validators can report ok for the selected completed papers, but the runner should still gain an explicit requested-paper completeness check so a paper that fails an early stage cannot be silently omitted from validation.
-
-## Do Not Do
-
-- Do not print `config/ai.local.json`, API keys, or auth tokens.
-- Do not hand-edit generated JSON to make validators pass.
-- Do not let AI invent ids, source refs, paper facts, or unsupported scope numbers.
-- Do not continue stacking manual metadata exceptions for individual papers. Prefer a designed metadata layer with provenance and low-confidence blanks.
-- Do not collapse `evidence_atoms` and `paper_syntheses` into the literature-card prompt.
-- Do not treat `paper_syntheses.json` as cross-paper synthesis. It is article-internal only.
-- Do not run two writers for the same `library/Sxx` stage concurrently.
-- Do not commit generated data, local PDFs, local configs, or local runtimes.
-
-## Next Work
-
-1. Add requested-paper completeness checks to `run_pipeline.py` and/or validators.
-2. Redesign metadata extraction: candidates plus provenance, DOI/authoritative metadata confirmation when available, and `review_required` for low-confidence fields.
-3. After the metadata design is agreed, test it on S05/S06/S08/S09 and S10-S19 without adding per-paper exceptions.
-4. Review duplicate and deferred-profile policy before a full-library run.
-5. Build matrix export using `literature_card.json`, `evidence_atoms.json`, and `paper_syntheses.json`.
-6. Design cross-paper synthesis as a separate layer.

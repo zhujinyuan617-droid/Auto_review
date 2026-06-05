@@ -122,7 +122,7 @@ Metadata cleanup performed during the batch:
 - Prefer the filename/docling-name year before first-page citation years.
 - Sync corrected metadata into existing literature cards with `--from-card` without calling AI.
 
-Design warning: the metadata cleanup above was a pragmatic batch-stability fix, not the final metadata architecture. Do not keep adding individual paper or publisher exceptions. The next metadata layer should record candidates, provenance, authoritative DOI metadata when available, and low-confidence `review_required` fields instead of forcing uncertain values.
+Note: the metadata cleanup above was part of this batch run. Metadata recognition is still an open problem and may need a cleaner design later.
 
 ## Final Paper Summary
 
@@ -148,4 +148,4 @@ Validation report counts are from `reports/pipeline_20260605_002646_913830_7392_
 - The AI stages completed with DeepSeek-compatible config and produced no fallback warnings on this 10-paper English-mainline sample.
 - The reading validator still reports a few continuation-start examples caused by formulas/OCR fragments, but there are no missing, unknown, duplicate, embedded-header, cleanup, or incomplete-paragraph failures.
 - Next technical improvement to consider: add a requested-paper completeness check so validators fail loudly if a selected paper never reached a required output stage.
-- Next metadata improvement: redesign metadata resolution before expanding heuristic rules.
+- Metadata recognition remains an open problem after this batch.

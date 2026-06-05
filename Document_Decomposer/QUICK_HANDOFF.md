@@ -385,12 +385,14 @@ After committing:
 git push
 ```
 
-## 10. Current Next Work
+## 10. Current Open Problems
 
-Recommended next move:
+Current known problems:
 
-1. Add requested-paper completeness checks so validators fail if a selected paper never produced required outputs.
-2. Redesign metadata extraction before adding more per-publisher or per-paper rules.
-3. Metadata design principle: candidates plus provenance, DOI/authoritative confirmation when available, and low-confidence fields left blank or marked `review_required`.
-4. Recheck S05/S06/S08/S09 and S10-S19 after the metadata design, without adding individual-paper exceptions.
-5. Matrix export and cross-paper synthesis are intentionally postponed.
+1. Metadata extraction is still heuristic and can misread title, journal, DOI, or year.
+2. Validators need a completeness check for every requested `paper_id`.
+3. Larger full-library batch processing has not been completed.
+4. Memory-aware scheduling for large batches or long PDFs is not implemented.
+5. Matrix export is not implemented.
+6. Cross-paper synthesis is not implemented.
+7. Chinese/non-English paper processing is deferred.
