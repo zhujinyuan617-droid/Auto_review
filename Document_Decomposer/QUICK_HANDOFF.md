@@ -27,7 +27,7 @@ Document_Decomposer\reports\
 Document_Decomposer\envs\
 ```
 
-## Current Known-Good Smoke Paper
+## Current Known-Good Checks
 
 Use `S05` as the canonical one-paper smoke test.
 
@@ -52,6 +52,16 @@ ai_sections: ok, 8 sections, 191/191 blocks covered
 literature_card: ok, ai_warnings=[]
 evidence_atoms: ok, 14 atoms, ai_warnings=[]
 paper_syntheses: ok, 4 syntheses, ai_warnings=[]
+```
+
+The current larger English batch is also known-good:
+
+```text
+S10-S19: 10 English-mainline papers completed through validate.
+Final batch validators: validate_reading ok, validate_card ok, validate_evidence_atoms ok, validate_paper_syntheses ok.
+AI fallback warnings: none.
+Detailed record: BATCH_TEST_HANDOFF.md
+Stable commit: 1d1ef3e
 ```
 
 ## 1. Workspace Safety Check
@@ -229,6 +239,38 @@ py scripts\run_pipeline.py --paper-id S05 --stage paper_syntheses --library-dir 
 py scripts\run_pipeline.py --paper-id S05 --stage validate --library-dir library --reports-dir reports
 ```
 
+## 5b. English Batch Validation Check
+
+If local `library/S10` through `library/S19` exists, verify the latest known-good batch without rerunning AI:
+
+```powershell
+py scripts\run_pipeline.py `
+  --paper-id S10 `
+  --paper-id S11 `
+  --paper-id S12 `
+  --paper-id S13 `
+  --paper-id S14 `
+  --paper-id S15 `
+  --paper-id S16 `
+  --paper-id S17 `
+  --paper-id S18 `
+  --paper-id S19 `
+  --stage validate `
+  --library-dir library `
+  --reports-dir reports
+```
+
+Expected:
+
+```text
+validate_reading: ok
+validate_card: ok
+validate_evidence_atoms: ok
+validate_paper_syntheses: ok
+```
+
+Read `BATCH_TEST_HANDOFF.md` for the paper-by-paper table and the original batch commands.
+
 ## 6. Focused Validators
 
 Run from `Document_Decomposer`:
@@ -347,8 +389,8 @@ git push
 
 Recommended next move:
 
-1. Add or select 2 to 3 more English, non-duplicate papers.
-2. Run the same staged pipeline on those English papers.
-3. Compare whether `literature_card` and `evidence_atoms` avoid fallback.
-4. Only then run larger English batches.
+1. Add requested-paper completeness checks so validators fail if a selected paper never produced required outputs.
+2. Redesign metadata extraction before adding more per-publisher or per-paper rules.
+3. Metadata design principle: candidates plus provenance, DOI/authoritative confirmation when available, and low-confidence fields left blank or marked `review_required`.
+4. Recheck S05/S06/S08/S09 and S10-S19 after the metadata design, without adding individual-paper exceptions.
 5. Matrix export and cross-paper synthesis are intentionally postponed.

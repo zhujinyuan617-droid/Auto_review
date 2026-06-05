@@ -1,6 +1,43 @@
 # Document Decomposer Handoff
 
-This is the current handoff snapshot. For the fastest reproducible check, read `QUICK_HANDOFF.md` first. For durable operating rules and broader commands, read `AI_GUIDE.md`.
+This is the current handoff snapshot. For the fastest reproducible check, read `QUICK_HANDOFF.md` first. For the 10-paper English batch record, read `BATCH_TEST_HANDOFF.md`. For durable operating rules and broader commands, read `AI_GUIDE.md`.
+
+## Current Stable State
+
+Stable commit:
+
+```text
+1d1ef3e Stabilize English batch processing
+```
+
+Current verified scope:
+
+```text
+S05/S06/S08/S09: validated smoke/baseline papers.
+S10-S19: 10-paper English-mainline batch completed and validated.
+```
+
+The latest 10-paper batch finished with:
+
+```text
+Docling: ok for all 10
+clean: ok for all 10 after Windows atomic-write retry fix
+sections: ok
+reading: ok
+literature_card: ok
+evidence_atoms: ok
+paper_syntheses: ok
+final validators: ok
+AI fallback warnings: none
+```
+
+Current product focus:
+
+```text
+English journal articles first.
+Chinese/non-English papers and non-article files remain deferred by default.
+Matrix export and cross-paper synthesis are still postponed.
+```
 
 ## Current Pipeline
 
@@ -26,9 +63,9 @@ Scripts execute, validate, repair, write atomically, cache AI calls, and stabili
 
 Do not hand-edit generated JSON to pass validation. Fix prompt, script logic, validation, fallback, or canonicalization, then rerun.
 
-## Current Known-Good Smoke Set
+## Current Known-Good Set
 
-The active one-paper smoke test is:
+The canonical one-paper smoke test remains:
 
 ```text
 library/S05
@@ -64,6 +101,13 @@ Deferred: Chinese/non-English papers and non-article files such as subject index
 
 `run_from_paper_downloads.py --all` now means all English-mainline records by default. Deferred records can still be processed explicitly with `--paper-id Sxx`, or included in batch experiments with `--include-deferred`.
 
+The broader English batch is documented in `BATCH_TEST_HANDOFF.md`:
+
+```text
+S10-S19 all passed validate_reading, validate_card, validate_evidence_atoms, and validate_paper_syntheses.
+Final validation report directory: reports/pipeline_20260605_002646_913830_7392_7af66809
+```
+
 ## Current Repository State
 
 This project is now managed in the monorepo:
@@ -77,12 +121,11 @@ The local repository is a Git repo on branch `main`. Generated data remains loca
 Recent important commits:
 
 ```text
-9301cd8 Create Auto Review monorepo
-3b21c42 Handle UTF-8 console output in decomposer CLIs
-e781084 Disable Hugging Face symlinks for Docling on Windows
-c7dbda5 Skip library index refresh during pipeline dry runs
-74fb232 Improve AI configuration errors
-01e78c6 Improve card and evidence AI extraction
+1d1ef3e Stabilize English batch processing
+6a28b6c Improve metadata and review synthesis quality
+8cec49a Limit default processing to English papers
+f812dfe Add interactive AI assistant launcher
+7d8cf5b Document end-to-end handoff checklist
 ```
 
 ## Important Files
@@ -250,18 +293,21 @@ Remove temporary `*debug*`, `*optimized*`, and `*.failed.json` files after diagn
 
 - Cross-paper synthesis has not been implemented.
 - Matrix/review draft export has not been implemented.
-- Full `paper_pool/paper` ingest has not yet been run. Only a `--limit 5` smoke ingest exists in the current monorepo workflow.
+- Larger full-library runs beyond the S10-S19 English batch have not been completed.
 - Current product focus is English papers. The Chinese long-PDF route is intentionally deferred, even though targeted experiments may still be run by explicit paper id.
 - Possible duplicates are skipped by default by `run_from_paper_downloads.py`.
 - Generated `data/`, `library/`, `reports/`, and local runtimes are ignored and not part of Git history.
 - `config/ai.local.json` is ignored and must stay local.
 - AI outputs can vary by provider/model. If card/evidence falls back, use `--save-failed-attempts` and adjust prompt/normalization instead of editing generated JSON by hand.
+- Metadata extraction currently uses deterministic heuristics in `package_builder.py`. These heuristics helped the S10-S19 batch pass, but do not keep adding paper-specific or publisher-specific exceptions casually. The next metadata design should separate candidates, provenance, authoritative DOI metadata, and low-confidence review flags.
+- Current final validators can report ok for the selected completed papers, but the runner should still gain an explicit requested-paper completeness check so a paper that fails an early stage cannot be silently omitted from validation.
 
 ## Do Not Do
 
 - Do not print `config/ai.local.json`, API keys, or auth tokens.
 - Do not hand-edit generated JSON to make validators pass.
 - Do not let AI invent ids, source refs, paper facts, or unsupported scope numbers.
+- Do not continue stacking manual metadata exceptions for individual papers. Prefer a designed metadata layer with provenance and low-confidence blanks.
 - Do not collapse `evidence_atoms` and `paper_syntheses` into the literature-card prompt.
 - Do not treat `paper_syntheses.json` as cross-paper synthesis. It is article-internal only.
 - Do not run two writers for the same `library/Sxx` stage concurrently.
@@ -269,10 +315,9 @@ Remove temporary `*debug*`, `*optimized*`, and `*.failed.json` files after diagn
 
 ## Next Work
 
-1. Ingest or select 2 to 3 additional English, non-duplicate papers.
-2. Run the same staged S05 workflow on those English papers.
-3. Check whether `literature_card` and `evidence_atoms` avoid fallback on varied English papers.
-4. Only after those smoke tests pass, run larger English batches.
-5. Review duplicate and deferred-profile policy before full ingest.
-6. Build matrix export using `literature_card.json`, `evidence_atoms.json`, and `paper_syntheses.json`.
-7. Design cross-paper synthesis as a separate layer.
+1. Add requested-paper completeness checks to `run_pipeline.py` and/or validators.
+2. Redesign metadata extraction: candidates plus provenance, DOI/authoritative metadata confirmation when available, and `review_required` for low-confidence fields.
+3. After the metadata design is agreed, test it on S05/S06/S08/S09 and S10-S19 without adding per-paper exceptions.
+4. Review duplicate and deferred-profile policy before a full-library run.
+5. Build matrix export using `literature_card.json`, `evidence_atoms.json`, and `paper_syntheses.json`.
+6. Design cross-paper synthesis as a separate layer.
