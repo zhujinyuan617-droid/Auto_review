@@ -91,6 +91,115 @@ def filename_doi_key(value: str) -> str:
     return ""
 
 
+def clean_title_spacing(value: str) -> str:
+    title = normalize_space(value)
+    replacements = {
+        "fl ow": "flow",
+        "fl uid": "fluid",
+        "microfl uidic": "microfluidic",
+        "uidic": "uidic",
+    }
+    for old, new in replacements.items():
+        title = re.sub(rf"\b{re.escape(old)}\b", new, title, flags=re.I)
+    return normalize_space(title)
+
+
+def doi_from_text_or_name(*values: str) -> str:
+    blob = " ".join(str(value or "") for value in values)
+    explicit = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", blob)
+    if explicit:
+        return explicit.group(0).rstrip(".")
+
+    lowered = blob.lower()
+    elsevier = re.search(
+        r"(?:^|[^a-z0-9])j[._-]([a-z0-9]+)[._-]((?:19|20)\d{2})[._-]([a-z0-9]+(?:[._-][a-z0-9]+)*)",
+        lowered,
+    )
+    if elsevier:
+        journal, year, article = elsevier.groups()
+        article = re.sub(r"[._-]+", ".", article).rstrip(".")
+        return f"10.1016/j.{journal}.{year}.{article}".rstrip(".")
+
+    rsc = re.search(r"(?:^|[^A-Z0-9])([A-Z]\d[A-Z]{2}\d{5}[A-Z]?)(?:$|[^A-Z0-9])", blob, flags=re.I)
+    if rsc:
+        return f"10.1039/{rsc.group(1).upper()}"
+
+    wiley_prefixes = {
+        "aic": "10.1002/aic",
+        "advs": "10.1002/advs",
+    }
+    for token, prefix in wiley_prefixes.items():
+        match = re.search(rf"(?:^|[^a-z0-9]){token}[._-]([0-9]{{4,}})(?:$|[^0-9])", lowered)
+        if match:
+            return f"{prefix}.{match.group(1)}"
+    return ""
+
+
+def title_from_paper_line(text_blob: str) -> str:
+    match = re.search(
+        r"\bPAPER\s+(.+?)(?:\n|\bISSN\b|\b\d{4}-\d{4}\b|$)",
+        text_blob,
+        flags=re.I | re.S,
+    )
+    if not match:
+        return ""
+    title = normalize_space(match.group(1))
+    title = re.sub(r"^[A-Z][A-Za-z-]+ et al\s*\.?\s*", "", title, flags=re.I)
+    title = re.sub(r"\bPAPER\b", "", title, flags=re.I)
+    return clean_title_spacing(title)
+
+
+def title_from_docling_name(value: str) -> str:
+    stem = Path(str(value or "")).stem
+    if not stem:
+        return ""
+    parts = [part for part in re.split(r"_+", stem) if part]
+    if parts and re.fullmatch(r"S\d+", parts[0], flags=re.I):
+        parts = parts[1:]
+    if parts and re.fullmatch(r"(?:19|20)\d{2}|unknown-year", parts[0], flags=re.I):
+        parts = parts[1:]
+    if parts and re.fullmatch(r"[A-Z][A-Za-z-]{1,30}|unknown", parts[0]):
+        parts = parts[1:]
+
+    while parts:
+        tail = parts[-1]
+        lowered = tail.lower()
+        if (
+            re.fullmatch(r"j\.[a-z0-9]+\.(?:19|20)\d{2}\.[a-z0-9]+(?:\.[a-z0-9]+)*", lowered)
+            or re.fullmatch(r"[a-z]\d[a-z]{2}\d{5}[a-z]?", lowered)
+            or re.fullmatch(r"(?:aic|advs)(?:\.\d{4,})?", lowered)
+            or lowered.startswith("zot-")
+        ):
+            parts.pop()
+            continue
+        break
+    title = " ".join(parts).replace("  ", " ").strip(" ._-")
+    return clean_title_spacing(title)
+
+
+def bad_title_candidate(value: str) -> bool:
+    title = clean_title_spacing(value)
+    lowered = normalize_title(title).replace("_", " ")
+    if not title:
+        return True
+    if len(title) > 220:
+        return True
+    if title.count(".") >= 2:
+        return True
+    bad_exact = {
+        "miniaturisation for chemistry physics biology materials science and bioengineering",
+        "contents lists available at sciencedirect",
+        "full length article",
+        "article info",
+        "abstract",
+    }
+    if lowered in bad_exact:
+        return True
+    if lowered.startswith(("journal homepage", "www ", "issn ", "volume ")):
+        return True
+    return False
+
+
 def content_tokens(value: str) -> set[str]:
     stopwords = {
         "the",
@@ -495,7 +604,9 @@ def metadata_candidates(data: dict[str, Any], paper_id: str) -> dict[str, Any]:
         if page_no(t) == 1 and t.get("label") not in DROP_LABELS
     ]
     text_blob = "\n".join((t.get("text") or t.get("orig") or "") for t in first_page_texts)
-    doi_match = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", text_blob)
+    docling_name = str(data.get("name") or paper_id)
+    origin_filename = str((data.get("origin") or {}).get("filename") or "")
+    doi = doi_from_text_or_name(text_blob, docling_name, origin_filename)
     header_blob = "\n".join(
         (t.get("text") or t.get("orig") or "")
         for t in first_page_all_texts
@@ -505,7 +616,7 @@ def metadata_candidates(data: dict[str, Any], paper_id: str) -> dict[str, Any]:
     if not year_match:
         year_match = re.search(r"\b(19|20)\d{2}\b", header_blob)
     if not year_match:
-        year_match = re.search(r"\b(19|20)\d{2}\b", data.get("name", ""))
+        year_match = re.search(r"\b(19|20)\d{2}\b", docling_name)
     if not year_match:
         year_match = re.search(r"\b(19|20)\d{2}\b", text_blob)
     front_values = [(t.get("text") or t.get("orig") or "").strip() for t in first_page_texts]
@@ -542,8 +653,14 @@ def metadata_candidates(data: dict[str, Any], paper_id: str) -> dict[str, Any]:
     title = ""
     for value in front_values:
         if looks_like_article_title(value):
-            title = value
+            title = clean_title_spacing(value)
             break
+    if bad_title_candidate(title):
+        title = title_from_paper_line(text_blob)
+    if bad_title_candidate(title):
+        title = title_from_docling_name(docling_name)
+    if bad_title_candidate(title):
+        title = ""
 
     journal = ""
     known_journal_names = [
@@ -569,10 +686,10 @@ def metadata_candidates(data: dict[str, Any], paper_id: str) -> dict[str, Any]:
 
     return {
         "title": title,
-        "doi": doi_match.group(0).rstrip(".") if doi_match else "",
+        "doi": doi,
         "year": year_match.group(0).strip("()") if year_match else "",
         "journal": journal,
-        "docling_name": data.get("name", paper_id),
+        "docling_name": docling_name,
         "first_page_text": text_blob[:5000],
     }
 

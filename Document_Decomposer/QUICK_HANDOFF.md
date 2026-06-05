@@ -293,8 +293,10 @@ Bad signs:
 ```text
 fallback:rule_based_literature_card
 fallback:rule_based_evidence_atoms
+fallback:rule_based_paper_syntheses
 quote_not_found_count > 0
 missing_evidence_count > 0
+review_section_hints empty on a paper with findings/mechanisms
 ```
 
 Use the diagnostic switch instead of guessing:

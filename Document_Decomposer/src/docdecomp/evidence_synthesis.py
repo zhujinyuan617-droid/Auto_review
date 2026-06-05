@@ -272,10 +272,13 @@ def build_paper_syntheses_prompt(
     system = (
         "You build article-internal syntheses from evidence atoms. "
         "Use only the supplied evidence_atom_id values. Do not use outside knowledge or reading blocks directly. "
-        "A synthesis claim must combine two or more atoms into a larger within-paper conclusion."
+        "A synthesis claim must combine two or more atoms into a larger within-paper conclusion that is useful "
+        "for a literature review matrix or review draft."
     )
     user = (
         "Build paper_syntheses JSON for this one paper as a stable, deterministic article-level synthesis map. "
+        "Write syntheses for downstream review writing, not as a generic abstract summary. Each claim should answer "
+        "'what does this paper contribute to a review topic, and under what boundary conditions?' "
         "Return exactly 5 syntheses when at least 5 independent article-internal themes are supported; otherwise "
         "return one synthesis per supported independent theme. Do not return more than 5 syntheses. "
         "Use this stable priority order when the evidence supports these theme families: "
@@ -300,8 +303,10 @@ def build_paper_syntheses_prompt(
         "direct result/mechanism/limitation atoms, and the earliest method/scope atom needed to bound the claim. "
         "Sort supporting_evidence_atom_ids in ascending evidence_atom_id order. "
         "The claim can be more inferential than an evidence atom, but it must be fully supported by the listed atoms. "
+        "Prefer claims that are comparative, mechanism-oriented, method-to-result, or limitation-aware. Avoid claims "
+        "that merely restate one atom or list a method without saying why it matters for interpreting the paper. "
         "reasoning should explain how the atoms combine. scope should state only the boundary supported by the "
-        "listed atoms. If scope uses exact temperatures, pressures, sample counts, or other numbers, those exact "
+        "listed atoms and should be phrased so another paper can be compared against it. If scope uses exact temperatures, pressures, sample counts, or other numbers, those exact "
         "numbers must appear in the selected atoms' quote or minimal_claim text. "
         "limitations should list stated or obvious scope limits from the selected atoms; use an empty array if none are supported. "
         "Do not mention reading_block_id in the synthesis object; the evidence layer already stores that. "
@@ -804,6 +809,43 @@ def unsupported_scope_numbers(synthesis: dict[str, Any], atoms_by_id: dict[str, 
     return [token for token in numeric_tokens(synthesis.get("scope")) if token not in support_numbers]
 
 
+def atom_text(atom: dict[str, Any]) -> str:
+    return normalize_space(
+        " ".join(
+            [
+                str(atom.get("quote") or ""),
+                str(atom.get("minimal_claim") or ""),
+                " ".join(str(value) for value in atom.get("topic_tags") or []),
+            ]
+        )
+    )
+
+
+def repair_scope_number_support(synthesis: dict[str, Any], atoms_by_id: dict[str, dict[str, Any]]) -> None:
+    support_ids = normalize_string_list(synthesis.get("supporting_evidence_atom_ids"))
+    if not support_ids:
+        return
+    supported_numbers = set()
+    for atom_id in support_ids:
+        atom = atoms_by_id.get(atom_id)
+        if atom:
+            supported_numbers.update(numeric_tokens(atom_text(atom)))
+    missing_numbers = [number for number in numeric_tokens(synthesis.get("scope")) if number not in supported_numbers]
+    if not missing_numbers:
+        synthesis["supporting_evidence_atom_ids"] = support_ids
+        return
+
+    for number in missing_numbers:
+        for atom_id in sorted(atoms_by_id):
+            if atom_id in support_ids:
+                continue
+            if number in numeric_tokens(atom_text(atoms_by_id[atom_id])):
+                support_ids.append(atom_id)
+                supported_numbers.update(numeric_tokens(atom_text(atoms_by_id[atom_id])))
+                break
+    synthesis["supporting_evidence_atom_ids"] = sorted(dict.fromkeys(support_ids))
+
+
 def synthesis_text_blob(synthesis: dict[str, Any]) -> str:
     parts = [
         synthesis.get("claim"),
@@ -1041,10 +1083,12 @@ def ensure_paper_syntheses_defaults(package: dict[str, Any], evidence_atoms: dic
 
     syntheses: list[dict[str, Any]] = []
     seen: set[tuple[str, ...]] = set()
+    atoms_by_id = evidence_atom_map(evidence_atoms)
     for raw_synthesis in syntheses_value:
         if not isinstance(raw_synthesis, dict):
             continue
         synthesis = normalize_paper_synthesis(raw_synthesis)
+        repair_scope_number_support(synthesis, atoms_by_id)
         key = tuple(synthesis.get("supporting_evidence_atom_ids") or [])
         if key in seen:
             continue

@@ -344,6 +344,7 @@ paper_syntheses.json       Article-internal syntheses supported by evidence atom
 - Built by `scripts/ingest_paper_downloads.py`.
 - Tracks downloaded PDFs by SHA-256, original filename/path, staged PDF path, stable `Sxx` id, and possible duplicate hints.
 - Tracks `processing_profile`, `language_hint`, and `profile_reason` so default batches stay focused on English papers.
+- Clean-package metadata can infer DOI values from common filename fragments such as Elsevier `j.<journal>.<year>.<article>`, RSC article codes, and Wiley `aic.<number>` / `advs.<number>`.
 - Exact duplicate PDFs with the same SHA-256 are not assigned new ids.
 - Different PDF files that look like the same article are flagged with `possible_duplicate_of`; they are not automatically merged.
 - `scripts/run_from_paper_downloads.py` skips possible duplicates by default unless `--include-possible-duplicates` is provided.
@@ -425,8 +426,10 @@ Do not create placeholder items. Empty, unknown, unspecified, not specified, N/A
 - Reading-block coverage repair auto-adds source blocks missed by AI plans.
 - Validator does not penalize a reading block when the Docling source text itself is visibly incomplete and the reading block mirrors it exactly.
 - Literature-card generation retries with validator feedback before writing a failed candidate.
+- Literature-card normalization fills missing review-section hints with evidence-backed local inference and cleans overlong section labels into review-style headings.
 - Evidence-atom generation validates exact quote membership in cited reading blocks.
 - Paper-synthesis generation validates atom references and can enforce manual baseline coverage.
+- Paper-synthesis normalization can add supporting evidence atoms when a synthesis scope uses numeric values that exist in other atoms; it preserves a strong AI synthesis instead of falling back solely because the support list omitted the numeric atom.
 - Paper-synthesis canonicalization stabilizes repeated output when a baseline is supplied.
 - PDF ingest deduplicates exact files by SHA-256 and flags possible same-paper duplicates by DOI-like filename keys and title-token overlap.
 - `run_from_paper_downloads.py` detects `docling` on PATH, then the dedicated local runtime at `envs\docling\Scripts\docling.exe`.

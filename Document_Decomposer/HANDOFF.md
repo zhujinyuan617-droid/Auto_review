@@ -174,7 +174,7 @@ Current runner status:
 - Input: `reading_blocks.json`, `metadata_candidates.json`
 - Output: `literature_card.json`
 - AI role: extract review-card fields with exact evidence quotes.
-- Script role: normalize fields, repair missing evidence where a direct matching reading block exists, validate evidence references, retry with validator feedback, fallback if needed.
+- Script role: normalize fields, repair missing evidence where a direct matching reading block exists, infer missing evidence-backed `review_section_hints`, clean overlong section labels into review-style headings, validate evidence references, retry with validator feedback, fallback if needed.
 - Debug option: `--save-failed-attempts` writes failed candidates with validation summaries.
 
 `ai_build_evidence_atoms.py`
@@ -190,7 +190,7 @@ Current runner status:
 - Input: `evidence_atoms.json`
 - Output: `paper_syntheses.json`
 - AI role: propose article-internal syntheses using evidence atom ids only.
-- Script role: validate support, enforce numeric scope support, optionally enforce baseline coverage, canonicalize final stable output.
+- Script role: validate support, add missing numeric-support atoms when a synthesis scope cites values available in other atoms, enforce numeric scope support, optionally enforce baseline coverage, canonicalize final stable output.
 
 ## AI Configuration
 

@@ -196,7 +196,11 @@ def build_prompt(
         "Each quantitative_results item must fill metric, value, condition, and interpretation. "
         "limitations should include only limitations or boundaries stated or clearly supported by the paper. "
         "Each limitations item must fill limitation. "
-        "review_section_hints should say where this paper could fit in a review. "
+        "review_section_hints is required when any key_findings, mechanisms, quantitative_results, or limitations "
+        "are extracted. Return 1 to 3 evidence-backed hints. Each hint should name a concise review subsection "
+        "where this paper would be useful, for example 'pore-scale gas transport models', 'CO2/CH4 adsorption in "
+        "clay minerals', 'microfluidic porous-media analogs', or 'drag laws for polydisperse suspensions'. "
+        "The reason must explain how the paper contributes to that subsection, not merely repeat the title. "
         "Evidence objects must use reading_block_id/source_block_ids/page_start/page_end exactly from the cited block. "
         "source_block_ids in evidence must be a subset of that reading block's source_block_ids. "
         "Evidence must be specific to the extracted item: the quote should contain the claim, keyword, variable, "
@@ -448,9 +452,14 @@ def normalize_card_items(card: dict[str, Any], reading: dict[str, Any]) -> None:
                 item["evidence"] = infer_evidence_for_item(item, reading, ["section", "reason"])
             if not item.get("section"):
                 item["section"] = infer_review_section(card)
+            item["section"] = normalize_review_section_name(item.get("section"), card)
             if not item.get("reason"):
                 item["reason"] = fallback_from_evidence(item)
             keep_keys(item, {"section", "reason", "evidence"})
+    if not card.get("review_section_hints"):
+        hint = infer_review_section_hint(card)
+        if hint:
+            card["review_section_hints"] = [hint]
 
 
 def fallback_from_evidence(item: dict[str, Any], max_chars: int = 220) -> str:
@@ -592,7 +601,79 @@ def infer_review_section(card: dict[str, Any]) -> str:
     objects = ", ".join(classification.get("research_objects") or [])
     if gases or objects:
         return f"{gases or 'gas adsorption'} in {objects or 'porous media'}"
-    return "literature review synthesis"
+    methods = ", ".join(classification.get("methods") or [])
+    domains = ", ".join(classification.get("domain_tags") or [])
+    if methods and domains:
+        return f"{methods} for {domains}"
+    if methods:
+        return f"{methods} methods"
+    if domains:
+        return domains
+    return "paper-specific evidence synthesis"
+
+
+def normalize_review_section_name(value: Any, card: dict[str, Any]) -> str:
+    section = normalize_space(value)
+    lowered = section.lower()
+    replacements = {
+        "gas adsorption in porous media analogs, micromodels": "microfluidic porous-media analogs",
+        "gas adsorption in porous media analogs": "microfluidic porous-media analogs",
+        "ch4, co2 in clay minerals, montmorillonite, methane, carbon dioxide": "CO2/CH4 adsorption in clay minerals",
+    }
+    if lowered in replacements:
+        return replacements[lowered]
+    if len(section) > 90 or section.count(",") >= 3:
+        classification = card.get("classification") if isinstance(card.get("classification"), dict) else {}
+        domains = [normalize_space(value) for value in classification.get("domain_tags") or []]
+        methods = [normalize_space(value) for value in classification.get("methods") or []]
+        objects = [normalize_space(value) for value in classification.get("research_objects") or []]
+        gases = [normalize_space(value) for value in classification.get("gas_systems") or []]
+        blob = " ".join([section, *domains, *methods, *objects, *gases]).lower()
+        if "microfluid" in blob or "micromodel" in blob or "voronoi" in blob:
+            return "microfluidic porous-media analogs"
+        if "co2" in blob and ("ch4" in blob or "methane" in blob) and ("clay" in blob or "montmorillonite" in blob):
+            return "CO2/CH4 adsorption in clay minerals"
+        if "drag" in blob and ("polydisperse" in blob or "suspension" in blob):
+            return "drag laws for polydisperse suspensions"
+        if domains:
+            return short_text(domains[0], 80)
+        if methods:
+            return short_text(methods[0] + " methods", 80)
+    return section
+
+
+def first_supported_item(card: dict[str, Any]) -> dict[str, Any] | None:
+    for field in ["key_findings", "mechanisms", "quantitative_results", "limitations", "study_design"]:
+        for item in card.get(field) or []:
+            if isinstance(item, dict) and item.get("evidence"):
+                return item
+    core = card.get("core_question") if isinstance(card.get("core_question"), dict) else {}
+    return core if core.get("evidence") else None
+
+
+def infer_review_section_hint(card: dict[str, Any]) -> dict[str, Any] | None:
+    item = first_supported_item(card)
+    if not item:
+        return None
+    section = infer_review_section(card)
+    if is_placeholder_text(section):
+        return None
+    classification = card.get("classification") if isinstance(card.get("classification"), dict) else {}
+    tag_values: list[str] = []
+    for key in ["research_objects", "gas_systems", "methods", "domain_tags"]:
+        for value in classification.get(key) or []:
+            text = normalize_space(value)
+            if text and text not in tag_values:
+                tag_values.append(text)
+    reason = "This paper provides evidence relevant to " + section
+    if tag_values:
+        reason += " through " + ", ".join(tag_values[:6])
+    reason += "."
+    return {
+        "section": section,
+        "reason": short_text(reason, 260),
+        "evidence": item.get("evidence") or [],
+    }
 
 
 def prune_empty_items(card: dict[str, Any]) -> None:
