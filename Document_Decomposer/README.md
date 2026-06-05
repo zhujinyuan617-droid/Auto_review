@@ -1,0 +1,41 @@
+# Document Decomposer
+
+This project turns downloaded academic PDFs into a structured literature library.
+
+Current main pipeline:
+
+```text
+PDF
+-> ingest manifest / staged PDF
+-> Docling JSON/Markdown
+-> clean paper package
+-> ai_sections.json
+-> reading_blocks.json / reading.md
+-> literature_card.json
+-> evidence_atoms.json
+-> paper_syntheses.json
+-> literature matrix / review draft
+```
+
+For AI agents and detailed operating rules, read [AI_GUIDE.md](AI_GUIDE.md) first. For the current handoff snapshot, read [HANDOFF.md](HANDOFF.md).
+
+Directory roles:
+
+- `data/docling/`: raw Docling outputs. Treat these files as read-only source material.
+- `data/ingest/`: registered downloaded PDFs, staged stable PDF names, and ingest manifest.
+- `src/docdecomp/`: reusable Python code for parsing Docling JSON and building clean packages.
+- `scripts/`: command-line entry points for batch processing and validation.
+- `library/`: generated clean paper packages.
+- `schemas/`: JSON schemas for clean packages, evidence, AI packets, and literature cards.
+- `reports/`: generated quality reports.
+- `envs/docling/`: local Docling runtime used by `run_from_paper_downloads.py`.
+- `DOCLING_INSTALL.md`: how to install or rebuild Docling.
+- `tool_bakeoff/`: removed historical tool comparison workspace; Docling now uses `envs/docling/`.
+
+The current production target is a reproducible package workflow that converts Docling output into `library/<paper_id>/` packages with source PDFs, text blocks, figures, tables, evidence manifests, reading blocks, literature cards, hard evidence atoms, and article-internal syntheses.
+
+Useful entry points:
+
+- `scripts/ingest_paper_downloads.py`: scan `paper_pool/paper`, dedupe by SHA-256, flag possible duplicates by DOI-like filename keys/tokens, assign stable `Sxx` ids, and stage PDFs.
+- `scripts/run_from_paper_downloads.py`: check/run Docling for missing outputs, then call `scripts/run_pipeline.py`.
+- `scripts/run_pipeline.py`: run the post-Docling document decomposition pipeline.

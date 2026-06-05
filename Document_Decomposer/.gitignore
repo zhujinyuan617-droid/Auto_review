@@ -1,0 +1,29 @@
+# Secrets and local config
+config/ai.local.json
+*.local.json
+.env
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local runtimes
+envs/
+.venv/
+venv/
+
+# Generated pipeline data
+data/
+library/
+reports/
+logs/
+
+# Large/source documents
+*.pdf
+*.zip
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

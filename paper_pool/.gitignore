@@ -1,0 +1,26 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local PDF pool and archives
+paper/
+*.pdf
+*.zip
+
+# Generated state and reports
+state/
+reports/
+data/
+
+# User-provided inputs and calibration assets
+user/
+
+# Local secrets/config overrides
+config/*.local.json
+.env
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

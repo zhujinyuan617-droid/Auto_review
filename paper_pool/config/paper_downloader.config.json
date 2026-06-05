@@ -1,0 +1,52 @@
+{
+  "pdf_url_template": "{article_url}/pdfft?isDTMRedir=true&download=true",
+  "download_dir": "paper",
+  "filename_template": "{year}_{first_author}_{short_title}_{doi_suffix}.pdf",
+  "timing": {
+    "page_wait_seconds": 4,
+    "view_pdf_wait_seconds": 4,
+    "save_dialog_wait_seconds": 1,
+    "download_timeout_seconds": 30,
+    "min_delay_seconds": 5,
+    "max_delay_seconds": 12,
+    "batch_limit": 20,
+    "max_consecutive_failures": 2
+  },
+  "safety": {
+    "manual_retry_after_failure": false,
+    "max_attempts_per_article": 2,
+    "close_tab_after_article": true,
+    "start_chrome_if_missing": false,
+    "save_action": "paste_path_enter",
+    "click_save_button": false,
+    "require_user_access_notice": true,
+    "cloudflare_wait_seconds": 300,
+    "cloudflare_poll_seconds": 3
+  },
+  "vision": {
+    "enabled": true,
+    "template_dir": "user/screensnap",
+    "view_pdf_template": "user/screensnap/view_pdf.jpg",
+    "view_pdf_full_window": true,
+    "download_template": "user/screensnap/download.png",
+    "download_full_window": true,
+    "save_template": "user/screensnap/save.png",
+    "save_full_screen": true,
+    "cloudflare_template": "user/screensnap/Cloudflare.png",
+    "cloudflare_match_threshold": 0.82,
+    "template_size": 32,
+    "search_width": 260,
+    "search_height": 180,
+    "match_threshold": 0.88,
+    "download_match_threshold": 0.92,
+    "save_match_threshold": 0.86,
+    "scales": [
+      0.7,
+      0.85,
+      1.0,
+      1.15,
+      1.3,
+      1.5
+    ]
+  }
+}

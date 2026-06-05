@@ -1,0 +1,45 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Virtual environments and local runtimes
+.venv/
+venv/
+envs/
+Document_Decomposer/envs/
+paper_pool/.venv/
+
+# Local PDF pools and archives
+paper/
+paper_pool/paper/
+*.pdf
+*.zip
+
+# Generated data
+data/
+library/
+reports/
+state/
+logs/
+Document_Decomposer/data/
+Document_Decomposer/library/
+Document_Decomposer/reports/
+paper_pool/data/
+paper_pool/reports/
+paper_pool/state/
+
+# User-local inputs and button templates
+user/
+paper_pool/user/
+
+# Secrets and local config
+.env
+*.local.json
+config/ai.local.json
+Document_Decomposer/config/ai.local.json
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
