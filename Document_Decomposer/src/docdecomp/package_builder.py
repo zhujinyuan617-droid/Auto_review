@@ -16,6 +16,26 @@ from .io_utils import atomic_write_csv_rows, atomic_write_text, write_json
 SCHEMA_VERSION = "0.1.0"
 TEXT_LABELS = {"text", "section_header", "list_item", "caption", "formula", "footnote"}
 DROP_LABELS = {"page_header", "page_footer"}
+KNOWN_JOURNAL_NAMES = [
+    "AIChE Journal",
+    "Carbon",
+    "Chemical Engineering Journal",
+    "Chemical Engineering Science",
+    "Energy",
+    "Fluid Phase Equilibria",
+    "Fuel",
+    "Journal of Molecular Liquids",
+    "Journal of Petroleum Science and Engineering",
+    "Microporous and Mesoporous Materials",
+    "SPE Reservoir Evaluation & Engineering",
+]
+ELSEVIER_LOCATE_JOURNALS = {
+    "ces": "Chemical Engineering Science",
+    "fluid": "Fluid Phase Equilibria",
+    "fuel": "Fuel",
+    "micromeso": "Microporous and Mesoporous Materials",
+    "petrol": "Journal of Petroleum Science and Engineering",
+}
 
 
 @dataclass
@@ -132,6 +152,12 @@ def doi_from_text_or_name(*values: str) -> str:
         match = re.search(rf"(?:^|[^a-z0-9]){token}[._-]([0-9]{{4,}})(?:$|[^0-9])", lowered)
         if match:
             return f"{prefix}.{match.group(1)}"
+
+    spe_suffix = re.search(r"(?:^|[^0-9])(\d{5,6})[-_](PA|MS|SPE)(?:$|[^A-Z0-9])", blob, flags=re.I)
+    if spe_suffix:
+        paper_no, suffix = spe_suffix.groups()
+        return f"10.2118/{paper_no}-{suffix.upper()}"
+
     return ""
 
 
@@ -195,9 +221,39 @@ def bad_title_candidate(value: str) -> bool:
     }
     if lowered in bad_exact:
         return True
+    if is_known_journal_name(title):
+        return True
     if lowered.startswith(("journal homepage", "www ", "issn ", "volume ")):
         return True
     return False
+
+
+def is_known_journal_name(value: str) -> bool:
+    normalized = normalize_space(value).lower()
+    return normalized in {journal.lower() for journal in KNOWN_JOURNAL_NAMES}
+
+
+def year_from_text_or_name(docling_name: str, origin_filename: str, header_blob: str, text_blob: str) -> str:
+    for value in [docling_name, origin_filename]:
+        match = re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", value)
+        if match:
+            return match.group(1)
+
+    for value in [header_blob, text_blob]:
+        for pattern in [
+            r"(?:copyright|©|&|Ó|V C)\s*(?:\D{0,20})\b((?:19|20)\d{2})\b",
+            r"\bAvailable online\b.*?\b((?:19|20)\d{2})\b",
+            r"\bPublished\b.*?\b((?:19|20)\d{2})\b",
+        ]:
+            match = re.search(pattern, value, flags=re.I | re.S)
+            if match:
+                return match.group(1)
+
+    match = re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", header_blob)
+    if match:
+        return match.group(1)
+    match = re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", text_blob)
+    return match.group(1) if match else ""
 
 
 def content_tokens(value: str) -> set[str]:
@@ -612,13 +668,8 @@ def metadata_candidates(data: dict[str, Any], paper_id: str) -> dict[str, Any]:
         for t in first_page_all_texts
         if t.get("label") == "page_header"
     )
-    year_match = re.search(r"\((19|20)\d{2}\)", header_blob)
-    if not year_match:
-        year_match = re.search(r"\b(19|20)\d{2}\b", header_blob)
-    if not year_match:
-        year_match = re.search(r"\b(19|20)\d{2}\b", docling_name)
-    if not year_match:
-        year_match = re.search(r"\b(19|20)\d{2}\b", text_blob)
+    furniture_blob = "\n".join((t.get("text") or t.get("orig") or "") for t in first_page_all_texts)
+    year = year_from_text_or_name(docling_name, origin_filename, header_blob, text_blob)
     front_values = [(t.get("text") or t.get("orig") or "").strip() for t in first_page_texts]
 
     def clean_front_value(value: str) -> str:
@@ -637,6 +688,8 @@ def metadata_candidates(data: dict[str, Any], paper_id: str) -> dict[str, Any]:
         }:
             return False
         if lowered in {"articleinfo", "article information"}:
+            return False
+        if is_known_journal_name(value):
             return False
         if lowered.startswith(("journal homepage", "keywords", "contents lists")):
             return False
@@ -663,17 +716,9 @@ def metadata_candidates(data: dict[str, Any], paper_id: str) -> dict[str, Any]:
         title = ""
 
     journal = ""
-    known_journal_names = [
-        "Journal of Petroleum Science and Engineering",
-        "Fuel",
-        "Chemical Engineering Journal",
-        "Energy",
-        "Carbon",
-        "Journal of Molecular Liquids",
-    ]
     for value in front_values[:25]:
         normalized = normalize_space(value)
-        for candidate in known_journal_names:
+        for candidate in KNOWN_JOURNAL_NAMES:
             if normalized.lower() == candidate.lower():
                 journal = candidate
                 break
@@ -682,12 +727,27 @@ def metadata_candidates(data: dict[str, Any], paper_id: str) -> dict[str, Any]:
     if not journal:
         home_match = re.search(r"journal homepage:\s*(?:www\.)?elsevier\.com/locate/([A-Za-z0-9_-]+)", text_blob, re.I)
         if home_match:
-            journal = home_match.group(1)
+            journal_key = home_match.group(1).lower()
+            journal = ELSEVIER_LOCATE_JOURNALS.get(journal_key, journal_key)
+    if not journal:
+        furniture_lines = [
+            normalize_space(collapse_spaced_letters(line))
+            for line in furniture_blob.splitlines()
+            if normalize_space(line)
+        ]
+        for candidate in KNOWN_JOURNAL_NAMES:
+            if any(
+                candidate.lower() == line.lower()
+                or (len(candidate.split()) >= 3 and re.search(rf"\b{re.escape(candidate)}\b", line, re.I))
+                for line in furniture_lines
+            ):
+                journal = candidate
+                break
 
     return {
         "title": title,
         "doi": doi,
-        "year": year_match.group(0).strip("()") if year_match else "",
+        "year": year,
         "journal": journal,
         "docling_name": docling_name,
         "first_page_text": text_blob[:5000],

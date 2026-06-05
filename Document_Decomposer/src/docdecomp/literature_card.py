@@ -20,6 +20,19 @@ CARD_LIST_FIELDS = [
     "limitations",
     "review_section_hints",
 ]
+KNOWN_JOURNAL_TITLES = {
+    "aiche journal",
+    "carbon",
+    "chemical engineering journal",
+    "chemical engineering science",
+    "energy",
+    "fluid phase equilibria",
+    "fuel",
+    "journal of molecular liquids",
+    "journal of petroleum science and engineering",
+    "microporous and mesoporous materials",
+    "spe reservoir evaluation engineering",
+}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -267,6 +280,19 @@ def ensure_card_defaults(card: dict[str, Any], reading: dict[str, Any], metadata
     paper.setdefault("year", metadata_candidates.get("year", ""))
     paper.setdefault("journal", metadata_candidates.get("journal", ""))
     paper.setdefault("paper_type", "unknown")
+    metadata_title = normalize_space(metadata_candidates.get("title") or "")
+    metadata_doi = normalize_space(metadata_candidates.get("doi") or "")
+    metadata_year = normalize_space(metadata_candidates.get("year") or "")
+    metadata_journal = normalize_space(metadata_candidates.get("journal") or "")
+    current_title = normalize_space(paper.get("title") or "")
+    if metadata_title and (not current_title or is_journal_or_banner_title(current_title)):
+        paper["title"] = metadata_title
+    if metadata_doi:
+        paper["doi"] = metadata_doi
+    if metadata_year:
+        paper["year"] = metadata_year
+    if metadata_journal:
+        paper["journal"] = metadata_journal
     if not isinstance(card.get("classification"), dict):
         card["classification"] = {}
     classification = card["classification"]
@@ -1179,13 +1205,8 @@ def paper_metadata_warnings(card: dict[str, Any]) -> list[str]:
         "full length article",
         "article",
         "article info",
-        "journal of petroleum science and engineering",
-        "journal of molecular liquids",
-        "chemical engineering journal",
-        "fuel",
-        "energy",
         "abstract",
-    }
+    } | KNOWN_JOURNAL_TITLES
     if not title:
         warnings.append("paper.title")
     elif title.lower() in generic_titles or normalized_title in generic_titles:
@@ -1195,6 +1216,16 @@ def paper_metadata_warnings(card: dict[str, Any]) -> list[str]:
     if journal and len(journal.split()) > 10:
         warnings.append("paper.journal:looks_like_title")
     return warnings
+
+
+def is_journal_or_banner_title(value: str) -> bool:
+    normalized = normalized_for_quality(value)
+    return (
+        normalized in KNOWN_JOURNAL_TITLES
+        or normalized in {"contents lists available at sciencedirect", "full length article", "article info", "abstract"}
+        or "journal homepage" in normalized
+        or "elsevier com locate" in normalized
+    )
 
 
 def validate_card(card: dict[str, Any], reading: dict[str, Any]) -> dict[str, Any]:
