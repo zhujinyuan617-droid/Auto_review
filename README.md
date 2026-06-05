@@ -88,9 +88,15 @@ Docling uses the local runtime under `Document_Decomposer/envs/docling/` when
 available. See `Document_Decomposer/DOCLING_INSTALL.md` to rebuild it on a new
 machine.
 
+For another AI agent or a fresh session, the fastest reproducible check is:
+
+```text
+Document_Decomposer\QUICK_HANDOFF.md
+```
+
 ## Current Next Milestones
 
-1. Push the current local workspace to the `Auto_review` monorepo.
-2. Verify a fresh clone on another machine or another folder.
-3. Run one-paper end-to-end smoke test before batch processing.
+1. Run the S05 checklist in `Document_Decomposer\QUICK_HANDOFF.md` from a fresh session or clone.
+2. Repeat the staged pipeline on 2 to 3 more non-duplicate papers.
+3. Confirm `literature_card` and `evidence_atoms` avoid fallback across varied papers.
 4. After the workflow is stable, design matrix export and cross-paper synthesis.

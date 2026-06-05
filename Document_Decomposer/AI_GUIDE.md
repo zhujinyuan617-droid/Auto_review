@@ -2,6 +2,8 @@
 
 This guide is for future AI agents working in this project. Read it before changing code or running batch jobs.
 
+For the shortest reproducible end-to-end check, read `QUICK_HANDOFF.md` first. It contains the current S05 smoke-test commands, redacted AI-config check, expected validation counts, and fallback diagnosis steps.
+
 ## Current Truth
 
 Project root:
@@ -26,6 +28,17 @@ PDF
 ```
 
 The mainline tools are Docling, local Python scripts, and an OpenAI-compatible AI endpoint. GROBID, Marker, and PaperQA are historical experiments, not the current mainline.
+
+Current known-good smoke baseline:
+
+```text
+S05
+content_blocks: 191
+reading_blocks: 168
+literature_card: ok, ai_warnings=[]
+evidence_atoms: ok, 14 atoms, ai_warnings=[]
+paper_syntheses: ok, 4 syntheses, ai_warnings=[]
+```
 
 ## Non-Negotiable Rules
 

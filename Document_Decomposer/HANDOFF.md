@@ -1,6 +1,6 @@
 # Document Decomposer Handoff
 
-This is the current handoff snapshot. For durable operating rules and commands, read `AI_GUIDE.md`.
+This is the current handoff snapshot. For the fastest reproducible check, read `QUICK_HANDOFF.md` first. For durable operating rules and broader commands, read `AI_GUIDE.md`.
 
 ## Current Pipeline
 
@@ -26,43 +26,54 @@ Scripts execute, validate, repair, write atomically, cache AI calls, and stabili
 
 Do not hand-edit generated JSON to pass validation. Fix prompt, script logic, validation, fallback, or canonicalization, then rerun.
 
-## Current Generated Set
+## Current Known-Good Smoke Set
 
-The current checked sample library is:
+The active one-paper smoke test is:
 
 ```text
-library/S01
-library/S02
-library/S03
+library/S05
 ```
 
-Current article-internal evidence/synthesis counts:
+Known-good S05 status:
 
 ```text
-S01: 21 evidence_atoms, 5 paper_syntheses
-S02: 24 evidence_atoms, 5 paper_syntheses
-S03: 22 evidence_atoms, 5 paper_syntheses
+title: Hindered settling velocity and microstructure in suspensions of solid spheres with moderate Reynolds numbers
+year: 2007
+doi: 10.1063/1.2764109
+content_blocks: 191
+evidence_items: 191
+ai_sections: 8 sections, 191/191 blocks covered
+reading_blocks: 168, 191/191 source blocks covered
+literature_card: ok, ai_warnings=[]
+evidence_atoms: ok, 14 atoms, ai_warnings=[]
+paper_syntheses: ok, 4 syntheses, ai_warnings=[]
 ```
 
-Current validation reports:
+S05 proved the current end-to-end route:
 
 ```text
-reports/evidence_atoms_quality.csv
-reports/paper_syntheses_quality.csv
-reports/synthesis_baseline_final.csv
-reports/synthesis_stability_rounds_13_15.json
-reports/pipeline_20260604_103751_641953_62220_ddca8447
-reports/paper_ingest_report.csv
+PDF -> Docling -> clean -> sections -> reading -> card -> evidence_atoms -> paper_syntheses
 ```
 
-Final status:
+## Current Repository State
+
+This project is now managed in the monorepo:
 
 ```text
-evidence_atoms: ok for S01-S03
-paper_syntheses: ok for S01-S03
-synthesis baseline coverage: 5/5 for S01, S02, S03
-stability rounds 13-15: signature_jaccard = 1.0 for every adjacent round and paper
-runner validate stage: reading/card/evidence_atoms/paper_syntheses all ok for S01-S03
+https://github.com/zhujinyuan617-droid/Auto_review
+```
+
+The local repository is a Git repo on branch `main`. Generated data remains local and ignored.
+
+Recent important commits:
+
+```text
+9301cd8 Create Auto Review monorepo
+3b21c42 Handle UTF-8 console output in decomposer CLIs
+e781084 Disable Hugging Face symlinks for Docling on Windows
+c7dbda5 Skip library index refresh during pipeline dry runs
+74fb232 Improve AI configuration errors
+01e78c6 Improve card and evidence AI extraction
 ```
 
 ## Important Files
@@ -112,23 +123,8 @@ Current runner status:
 
 ```text
 --stage all includes clean, sections, reading, card, evidence_atoms, paper_syntheses, and final validators.
---baseline is passed through to ai_build_paper_syntheses.py.
+--dry-run prints planned commands and does not refresh library/index.csv.
 ```
-
-Manual synthesis baseline:
-
-```text
-reports/manual_article_synthesis_baseline.json
-```
-
-Current ingest state:
-
-```text
-data/ingest/paper_manifest.json
-data/ingest/pdfs
-```
-
-Smoke ingest was run with `--limit 5`. It detected exact SHA-256 duplicates for existing S01 and S02, then registered staged PDFs for S14, S15, and S16. S15 is flagged as `possible_duplicate_of: S02` because its DOI-like filename key matches existing Docling input for S02.
 
 ## Stage Responsibilities
 
@@ -144,6 +140,7 @@ Smoke ingest was run with `--limit 5`. It detected exact SHA-256 duplicates for 
 - Output: missing Docling JSON/Markdown, then normal `library/Sxx` packages through `run_pipeline.py`.
 - Script role: check Docling availability, run Docling for missing outputs, copy outputs into `data/docling/json` and `data/docling/md`, call `run_pipeline.py`.
 - Docling runtime: defaults to PATH `docling`, then `envs/docling/Scripts/docling.exe`; see `DOCLING_INSTALL.md`.
+- Windows compatibility: sets Hugging Face symlink-disabling env vars before launching subprocesses.
 - Safety rule: records with `possible_duplicate_of` are skipped unless `--include-possible-duplicates` is provided.
 
 `ai_organize_sections.py`
@@ -165,14 +162,16 @@ Smoke ingest was run with `--limit 5`. It detected exact SHA-256 duplicates for 
 - Input: `reading_blocks.json`, `metadata_candidates.json`
 - Output: `literature_card.json`
 - AI role: extract review-card fields with exact evidence quotes.
-- Script role: normalize fields, validate evidence references, retry with validator feedback, fallback if needed.
+- Script role: normalize fields, repair missing evidence where a direct matching reading block exists, validate evidence references, retry with validator feedback, fallback if needed.
+- Debug option: `--save-failed-attempts` writes failed candidates with validation summaries.
 
 `ai_build_evidence_atoms.py`
 
 - Input: `reading_blocks.json`
 - Output: `evidence_atoms.json`
 - AI role: select hard evidence atoms.
-- Script role: validate atom ids, reading block ids, source ids, pages, and exact quote membership.
+- Script role: validate atom ids, reading block ids, source ids, pages, exact quote membership, and repair near-miss quotes to exact substrings from the cited reading block when safe.
+- Debug option: `--save-failed-attempts` writes failed candidates with validation summaries.
 
 `ai_build_paper_syntheses.py`
 
@@ -181,73 +180,77 @@ Smoke ingest was run with `--limit 5`. It detected exact SHA-256 duplicates for 
 - AI role: propose article-internal syntheses using evidence atom ids only.
 - Script role: validate support, enforce numeric scope support, optionally enforce baseline coverage, canonicalize final stable output.
 
-## Current Synthesis Stabilization
+## AI Configuration
 
-The article-internal synthesis layer was calibrated as follows:
+Do not print `config/ai.local.json`.
 
-1. Manually analyze each paper's evidence atoms.
-2. Store expected article-internal themes in `reports/manual_article_synthesis_baseline.json`.
-3. Call AI repeatedly to produce `paper_syntheses`.
-4. Compare AI output to the manual baseline with `scripts/audit_synthesis_stability.py`.
-5. If coverage drifts, adjust prompt/validation/canonicalization and rerun.
-6. Final result must pass three consecutive stable rounds.
+The local working configuration uses an OpenAI-compatible DeepSeek endpoint. The key is local only.
 
-The final stable run was rounds 13-15:
+Known working redacted values:
 
 ```text
-reports/synthesis_stability_rounds_13_15.csv
-reports/synthesis_stability_rounds_13_15.json
+base_url: https://api.deepseek.com
+model: deepseek-v4-flash
 ```
 
-When using the baseline:
+`https://platform.deepseek.com/v1` produced HTTP 405 and should not be used as the chat-completions base URL.
 
-```powershell
-py scripts\ai_build_paper_syntheses.py `
-  --paper-id S01 `
-  --library-dir library `
-  --baseline reports\manual_article_synthesis_baseline.json `
-  --max-ai-attempts 4
-```
-
-The final `paper_syntheses.json` is canonicalized, so it is not raw free-form AI output. It is an AI candidate that passed semantic coverage, then script-normalized into stable theme order, stable support ids, stable claim text, and stable reasoning/scope format.
+The AI config loader rejects missing values and unedited placeholders from `config/ai.example.json`.
 
 ## Current Commands To Recheck
 
-Validate the current library:
+Use `QUICK_HANDOFF.md` for the complete step-by-step smoke check.
+
+Minimal S05 validation:
 
 ```powershell
-py scripts\ingest_paper_downloads.py --limit 5 --dry-run
-py scripts\run_from_paper_downloads.py --paper-id S14 --skip-ingest --dry-run --baseline reports\manual_article_synthesis_baseline.json
-py scripts\validate_evidence_atoms.py --paper-id S01 --paper-id S02 --paper-id S03 --report reports\evidence_atoms_quality.csv
-py scripts\validate_paper_syntheses.py --paper-id S01 --paper-id S02 --paper-id S03 --report reports\paper_syntheses_quality.csv
-py scripts\audit_synthesis_stability.py --paper-id S01 --paper-id S02 --paper-id S03 --syntheses-name paper_syntheses.json --baseline reports\manual_article_synthesis_baseline.json --report reports\synthesis_baseline_final.csv --summary reports\synthesis_baseline_final.json
-py scripts\run_pipeline.py --paper-id S01 --paper-id S02 --paper-id S03 --stage validate
+cd D:\Project\Vibe_coding\Auto_review\Document_Decomposer
+py scripts\run_pipeline.py --paper-id S05 --stage validate --library-dir library --reports-dir reports
 ```
+
+Focused validators:
+
+```powershell
+py scripts\validate_reading_blocks.py --paper-id S05 --library-dir library --report reports\reading_blocks_quality.csv
+py scripts\validate_literature_card.py --paper-id S05 --library-dir library --report reports\literature_card_quality.csv
+py scripts\validate_evidence_atoms.py --paper-id S05 --library-dir library --report reports\evidence_atoms_quality.csv
+py scripts\validate_paper_syntheses.py --paper-id S05 --library-dir library --report reports\paper_syntheses_quality.csv
+```
+
+Diagnostic reruns for prompt problems:
+
+```powershell
+py scripts\ai_build_literature_card.py --paper-id S05 --library-dir library --output-name literature_card.debug.json --max-ai-attempts 2 --force --save-failed-attempts
+py scripts\ai_build_evidence_atoms.py --paper-id S05 --library-dir library --output-name evidence_atoms.debug.json --max-ai-attempts 2 --force --save-failed-attempts
+```
+
+Remove temporary `*debug*`, `*optimized*`, and `*.failed.json` files after diagnosis unless the user wants to preserve them.
 
 ## Current Caveats
 
 - Cross-paper synthesis has not been implemented.
 - Matrix/review draft export has not been implemented.
-- Full `paper_pool/paper` ingest has not yet been run. Only a `--limit 5` smoke ingest exists.
-- S15 is currently flagged as a possible duplicate of S02. Do not process it unless the duplicate decision is reviewed.
-- S02 `evidence_atoms.json` was produced by rule-based fallback after AI failed strict evidence validation. This is expected and recorded in `ai_warnings`.
-- `schema_hint` is currently appended as an extra system message by `OpenAICompatibleClient.chat_json`. This works, but merging it into the first system message may improve compatibility with some OpenAI-compatible endpoints.
-- The project directory is not currently a git repository, so use file-level inspection and reports rather than `git diff`.
+- Full `paper_pool/paper` ingest has not yet been run. Only a `--limit 5` smoke ingest exists in the current monorepo workflow.
+- Possible duplicates are skipped by default by `run_from_paper_downloads.py`.
+- Generated `data/`, `library/`, `reports/`, and local runtimes are ignored and not part of Git history.
+- `config/ai.local.json` is ignored and must stay local.
+- AI outputs can vary by provider/model. If card/evidence falls back, use `--save-failed-attempts` and adjust prompt/normalization instead of editing generated JSON by hand.
 
 ## Do Not Do
 
-- Do not print `config/ai.local.json`.
+- Do not print `config/ai.local.json`, API keys, or auth tokens.
 - Do not hand-edit generated JSON to make validators pass.
 - Do not let AI invent ids, source refs, paper facts, or unsupported scope numbers.
 - Do not collapse `evidence_atoms` and `paper_syntheses` into the literature-card prompt.
 - Do not treat `paper_syntheses.json` as cross-paper synthesis. It is article-internal only.
 - Do not run two writers for the same `library/Sxx` stage concurrently.
+- Do not commit generated data, local PDFs, local configs, or local runtimes.
 
 ## Next Work
 
-1. Decide whether `schema_hint` should be merged into the first system prompt for provider compatibility.
-2. Review `data/ingest/paper_manifest.json`, especially S15's possible duplicate flag.
-3. Run full PDF ingest without `--limit` after duplicate policy is accepted.
-4. Build matrix export using `literature_card.json`, `evidence_atoms.json`, and `paper_syntheses.json`.
-5. Design cross-paper synthesis as a separate layer.
-6. Extend from S01-S03 to S04+ only after the current validation gates are kept intact.
+1. Run the same staged S05 workflow on 2 to 3 more non-duplicate papers.
+2. Check whether `literature_card` and `evidence_atoms` avoid fallback on varied papers.
+3. Only after those smoke tests pass, run larger batches.
+4. Review duplicate policy before full ingest.
+5. Build matrix export using `literature_card.json`, `evidence_atoms.json`, and `paper_syntheses.json`.
+6. Design cross-paper synthesis as a separate layer.
