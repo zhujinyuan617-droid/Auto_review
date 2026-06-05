@@ -94,6 +94,12 @@ For another AI agent or a fresh session, the fastest reproducible check is:
 Document_Decomposer\QUICK_HANDOFF.md
 ```
 
+For a user-friendly menu, double-click:
+
+```text
+Document_Decomposer\start_assistant.bat
+```
+
 ## Current Next Milestones
 
 1. Run the S05 checklist in `Document_Decomposer\QUICK_HANDOFF.md` from a fresh session or clone.

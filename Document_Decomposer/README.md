@@ -39,9 +39,12 @@ Useful entry points:
 - `scripts/ingest_paper_downloads.py`: scan `paper_pool/paper`, dedupe by SHA-256, flag possible duplicates by DOI-like filename keys/tokens, assign stable `Sxx` ids, and stage PDFs.
 - `scripts/run_from_paper_downloads.py`: check/run Docling for missing outputs, then call `scripts/run_pipeline.py`.
 - `scripts/run_pipeline.py`: run the post-Docling document decomposition pipeline.
+- `start_assistant.bat`: double-click interactive assistant for local checks, AI setup, S05 validation, dry-runs, staged runs, and AI log diagnosis.
+- `scripts/interactive_assistant.py --status`: non-interactive assistant status check for automation.
 
 AI configuration:
 
 - Copy `config/ai.example.json` to `config/ai.local.json` for local use, then fill in `base_url`, `api_key`, and `model`.
 - `config/ai.local.json` is ignored by Git and must not be committed.
 - Environment variables can override the local file: `DOCDECOMP_AI_BASE_URL`, `DOCDECOMP_AI_API_KEY`, and `DOCDECOMP_AI_MODEL`.
+- The interactive assistant can create this config for DeepSeek, OpenAI, or any custom OpenAI-compatible `base_url`.

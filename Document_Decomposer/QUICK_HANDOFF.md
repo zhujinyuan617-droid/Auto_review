@@ -116,6 +116,29 @@ model=deepseek-v4-flash
 
 `https://platform.deepseek.com/v1` is wrong for chat completions and produced HTTP 405.
 
+For non-programmer setup, use the interactive assistant instead:
+
+```powershell
+.\start_assistant.bat
+```
+
+The assistant config wizard supports:
+
+```text
+DeepSeek preset: https://api.deepseek.com, default model deepseek-v4-flash
+OpenAI preset: https://api.openai.com/v1
+Custom OpenAI-compatible base_url
+```
+
+The assistant checks and writes `config\ai.local.json` using normal Python first. It only calls AI after the config is valid.
+
+Non-interactive checks:
+
+```powershell
+py scripts\interactive_assistant.py --status
+py scripts\interactive_assistant.py --validate-s05
+```
+
 ## 4. Ingest/Docling Dry Run
 
 Run from `Document_Decomposer`:

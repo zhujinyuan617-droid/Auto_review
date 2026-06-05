@@ -96,6 +96,7 @@ AI scripts:
 ```text
 scripts/ingest_paper_downloads.py
 scripts/run_from_paper_downloads.py
+scripts/interactive_assistant.py
 scripts/ai_organize_sections.py
 scripts/ai_build_reading_blocks.py
 scripts/ai_build_literature_card.py
@@ -196,6 +197,14 @@ model: deepseek-v4-flash
 `https://platform.deepseek.com/v1` produced HTTP 405 and should not be used as the chat-completions base URL.
 
 The AI config loader rejects missing values and unedited placeholders from `config/ai.example.json`.
+
+For user-friendly setup, run:
+
+```powershell
+.\start_assistant.bat
+```
+
+The interactive assistant has a non-AI bootstrap layer. It can configure DeepSeek, OpenAI, or a custom OpenAI-compatible `base_url`; it tests the endpoint only after `base_url`, API key, and model are present.
 
 ## Current Commands To Recheck
 
