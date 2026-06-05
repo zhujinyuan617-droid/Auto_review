@@ -185,8 +185,10 @@ def build_prompt(
         "paper.title must be the article title, not the journal name, article type, publisher banner, or section heading. "
         "If metadata_candidates.title is empty or visibly a journal name, infer the title only from the front-matter "
         "reading blocks that contain the article title. paper.journal must be the journal/source name, not the article title. "
-        "Do not create placeholder items to satisfy a desired count. Arrays may be empty when the supplied reading "
-        "blocks do not support high-quality items. Before returning, delete any list item that has an empty required "
+        "Do not create placeholder items to satisfy a desired count. Arrays other than study_design may be empty when "
+        "the supplied reading blocks do not support high-quality items. study_design must never be empty when any "
+        "methods, simulation, model, experiment, or workflow block is supplied. "
+        "Before returning, delete any list item that has an empty required "
         "text field, placeholder text, or no evidence. Placeholder text includes unknown, unspecified, not specified, "
         "N/A, none, reported result, and similar filler. "
         "classification should contain short normalized tags extracted from the paper, such as materials, gases, "
@@ -198,7 +200,12 @@ def build_prompt(
         "planning. Each item must include keyword, reason, and evidence. These can include mechanisms, phenomena, "
         "application scenarios, adsorption descriptors, or method-specific phrases. "
         "study_design should capture experimental/simulation/model setup, samples, models, or workflow. "
-        "Return 3 to 6 study_design items when the paper contains enough evidence. "
+        "study_design is mandatory: include at least one evidence-backed study_design item whenever the paper "
+        "describes any method, simulation, model, experiment, or workflow; never return an empty study_design in that "
+        "case. study_design items must be DISTINCT (never repeat the same item or duplicate text to reach a count) and "
+        "must describe THIS paper's own methods/simulation/model/scope/workflow. Never cite a references/bibliography "
+        "block (a reference list entry) as study_design evidence; cite methods/results/abstract blocks instead. "
+        "Return 1 to 6 distinct study_design items based on what the paper actually supports. "
         "variables should capture temperatures, pressures, gas ratios, pore/mineral/functional-group parameters, "
         "or other important independent/dependent/control quantities. For variables, include an item only when you "
         "can fill a specific name and explicit values_or_range from the cited reading block; otherwise omit it. "
@@ -1264,6 +1271,24 @@ def validate_card(card: dict[str, Any], reading: dict[str, Any]) -> dict[str, An
     metadata_warnings = paper_metadata_warnings(card)
     core_warnings = core_question_warnings(card)
     evidence_count = len(evidence_paths(card))
+    # study_design is mandatory: an empty study_design is a real extraction gap
+    # for these papers (they all describe a method/simulation/experiment), so
+    # treat it as a validation failure to trigger the repair-retry loop.
+    study_design_missing = not (card.get("study_design") or [])
+    # study_design quality gate: forcing non-empty must not be satisfied with
+    # duplicated items or bibliography/reference-list text (the model's escape
+    # hatches). Reject both so the repair-retry loop produces real methodology.
+    study_design_bad: list[str] = []
+    _seen_sd: set[str] = set()
+    for _idx, _item in enumerate(card.get("study_design") or []):
+        _detail = normalize_space(str(_item.get("detail") or "")).lower()
+        if _detail and _detail in _seen_sd:
+            study_design_bad.append(f"study_design[{_idx}]:duplicate_item")
+        _seen_sd.add(_detail)
+        for _ev in _item.get("evidence") or []:
+            _blk = blocks_by_id.get(str(_ev.get("reading_block_id") or ""))
+            if _blk and (_blk.get("section_kind") == "references" or _blk.get("reading_type") == "reference_entry"):
+                study_design_bad.append(f"study_design[{_idx}]:reference_block_evidence")
     status = "ok"
     if (
         missing_required
@@ -1275,6 +1300,8 @@ def validate_card(card: dict[str, Any], reading: dict[str, Any]) -> dict[str, An
         or weak_evidence
         or metadata_warnings
         or core_warnings
+        or study_design_missing
+        or study_design_bad
     ):
         status = "fail"
     return {
@@ -1289,6 +1316,8 @@ def validate_card(card: dict[str, Any], reading: dict[str, Any]) -> dict[str, An
         "warnings": "; ".join(
             [
                 *(f"missing_required:{key}" for key in missing_required),
+                *(["missing_study_design:study_design is empty; add at least one evidence-backed methods/simulation/model item"] if study_design_missing else []),
+                *(study_design_bad[:5]),
                 *empty_required_text_warnings(card)[:5],
                 *(metadata_warnings[:5]),
                 *(core_warnings[:5]),

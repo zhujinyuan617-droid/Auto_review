@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -86,6 +87,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", action="store_true", help="Pass --resume to run_pipeline.py.")
     parser.add_argument("--force", action="store_true", help="Pass --force to run_pipeline.py.")
     parser.add_argument("--parallel", type=int, default=1, help="Pass --parallel to run_pipeline.py.")
+    parser.add_argument(
+        "--docling-parallel",
+        type=int,
+        default=1,
+        help="Number of Docling conversions to run concurrently. Keep below --parallel; each Docling "
+        "process loads layout/table models and is RAM-heavy.",
+    )
     parser.add_argument("--limit", type=int, default=None, help="Pass --limit to ingest when rescanning.")
     parser.add_argument("--dry-run", action="store_true", help="Print planned commands without running them.")
     return parser.parse_args()
@@ -371,10 +379,35 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 3
-        for record in missing_docling:
-            code = run_docling_for_record(record, docling_cmd, args, run_dir)
-            if code != 0:
-                return code
+        docling_workers = max(1, args.docling_parallel)
+        failed_docling: list[str] = []
+        if docling_workers == 1 or len(missing_docling) == 1:
+            for record in missing_docling:
+                if run_docling_for_record(record, docling_cmd, args, run_dir) != 0:
+                    failed_docling.append(str(record["paper_id"]))
+        else:
+            print(f"Running Docling with {docling_workers} concurrent workers.")
+            with ThreadPoolExecutor(max_workers=docling_workers) as executor:
+                futures = {
+                    executor.submit(run_docling_for_record, record, docling_cmd, args, run_dir): record
+                    for record in missing_docling
+                }
+                for future in as_completed(futures):
+                    record = futures[future]
+                    try:
+                        code = future.result()
+                    except Exception as exc:  # keep the batch alive if one paper crashes
+                        print(f"{record['paper_id']}: docling crashed: {exc}", file=sys.stderr)
+                        code = 1
+                    if code != 0:
+                        failed_docling.append(str(record["paper_id"]))
+        if failed_docling:
+            failed_set = {paper_id.upper() for paper_id in failed_docling}
+            print(f"Docling failed for: {', '.join(sorted(failed_docling))}. Skipping them in the pipeline.")
+            records = [record for record in records if str(record["paper_id"]).upper() not in failed_set]
+            if not records:
+                print("All selected papers failed Docling; nothing to run in pipeline.")
+                return 4
     elif missing_docling:
         print("Skipping Docling; pipeline may fail for papers without JSON/MD outputs.")
 

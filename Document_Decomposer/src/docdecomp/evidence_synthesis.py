@@ -210,8 +210,25 @@ def build_evidence_atoms_prompt(
         "quote must be copied from the cited reading block and should usually be one sentence or sentence fragment. "
         "Prefer exact substrings from the supplied text. Do not repair grammar, remove spaces around symbols, change "
         "Greek/math characters, or rewrite variables such as u * or 𝛟. If a sentence is too long, copy a shorter "
-        "contiguous substring exactly as shown in the reading block. "
+        "contiguous substring exactly as shown in the reading block — but the chosen quote MUST still contain the exact "
+        "span that establishes minimal_claim (e.g., if the claim says a step 'indicates capillary condensation', the "
+        "quote must include the 'which indicates ...' clause, not just the lead-in). "
         "minimal_claim should be a conservative near-quote paraphrase, not a broad conclusion. "
+        "The cited quote MUST literally contain the fact asserted in minimal_claim. If atom_type is result, "
+        "mechanism, or quantitative_result, the quote must explicitly state that result/mechanism/number — never pair "
+        "a setup/method/context quote with a result claim (e.g., do not claim a velocity profile or selectivity value "
+        "while quoting only the simulation setup). If no single block quote literally supports the claim, cite the "
+        "block that does, or omit the atom. "
+        "Do NOT add to minimal_claim any number, unit, condition (temperature, pressure, pore size), comparison, or "
+        "attribution that is not present in the cited quote; if such a detail matters, choose a quote that contains it. "
+        "Specific over-reach bans (the most common real errors): "
+        "(a) do not assign a classification/type/category (such as 'type II', or a model name like 'Langmuir') unless "
+        "the quote states it; "
+        "(b) do not turn a tentative statement ('expected to', 'may', 'suggests', 'is likely') into a definitive one; "
+        "(c) do not drop a scope qualifier present in the quote (such as 'bidisperse', 'dry', 'at 298 K', a specific "
+        "sample or model name); "
+        "(d) do not attach a number or statistic to a model/sample/material it does not belong to — a value stated for "
+        "one model (e.g. Langmuir) is NOT evidence for a different one (e.g. Langmuir-AP). "
         "source_block_ids must be copied from the cited reading block and must be a subset of that block's ids. "
         "page_start and page_end must exactly match the cited reading block. "
         "Return only one JSON object with keys schema_version, paper_id, source_files, evidence_atoms, ai_warnings. "
@@ -235,7 +252,9 @@ def build_evidence_atoms_repair_prompt(
         "Every quote must be copied from the cited reading block exactly after whitespace normalization. "
         "Do not rewrite math notation, punctuation, Greek symbols, or spaced variables. When a quote fails, replace it "
         "with a shorter exact contiguous substring from the cited reading block. "
-        "Drop unsupported atoms instead of inventing ids or evidence. Validation summary:\n"
+        "Drop unsupported atoms instead of inventing ids or evidence. "
+        "For any claim_number_drift warning, the minimal_claim asserts a number/unit absent from its quote: either cite "
+        "a quote that contains that number, or rewrite minimal_claim to stay within the quote. Validation summary:\n"
         + json.dumps(validation, ensure_ascii=False)
     )
     if candidate.get("evidence_atoms"):
@@ -692,6 +711,28 @@ def evidence_atom_paths(package: dict[str, Any]) -> list[tuple[str, dict[str, An
     return paths
 
 
+_NUM_UNIT_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*"
+    r"(?:%|wt\.?\s*%|MPa|kPa|GPa|Pa|K\b|°C|nm|Å|µm|um|mm\b|"
+    r"mmol/g|mol/g|mg/g|g/cm3|g/cm³|kg/m3|kJ/mol|kcal/mol|eV|"
+    r"m2/s|m²/s|cm2/s|mD|psia?|bar)",
+    re.IGNORECASE,
+)
+
+
+def claim_number_drift(minimal_claim: str, quote: str) -> list[str]:
+    """Unit-bearing numbers asserted in minimal_claim that do not appear in the
+    cited quote. Conservative on purpose: only flags numbers carrying a known
+    unit, and matches the digit string as a substring of the (whitespace-stripped)
+    quote, so it prefers false negatives over false positives."""
+    quote_digits = re.sub(r"\s+", "", quote or "")
+    missing: list[str] = []
+    for match in _NUM_UNIT_RE.finditer(minimal_claim or ""):
+        if match.group(1) not in quote_digits:
+            missing.append(match.group(0).strip())
+    return missing
+
+
 def validate_evidence_atoms(package: dict[str, Any], reading: dict[str, Any]) -> dict[str, Any]:
     required = ["schema_version", "paper_id", "source_files", "evidence_atoms", "ai_warnings"]
     missing_required = [key for key in required if key not in package]
@@ -706,6 +747,7 @@ def validate_evidence_atoms(package: dict[str, Any], reading: dict[str, Any]) ->
     empty_required_text: list[str] = []
     invalid_types: list[str] = []
     invalid_confidence: list[str] = []
+    claim_number_drift_list: list[str] = []
     ids: list[str] = []
 
     for path, atom in evidence_atom_paths(package):
@@ -724,6 +766,10 @@ def validate_evidence_atoms(package: dict[str, Any], reading: dict[str, Any]) ->
             empty_required_text.append(f"{path}.source_block_ids")
         if not normalize_string_list(atom.get("topic_tags")):
             empty_required_text.append(f"{path}.topic_tags")
+
+        drift_nums = claim_number_drift(str(atom.get("minimal_claim") or ""), str(atom.get("quote") or ""))
+        if drift_nums:
+            claim_number_drift_list.append(f"{path}:{';'.join(drift_nums[:3])}")
 
         block_id = str(atom.get("reading_block_id") or "")
         block = blocks_by_id.get(block_id)
@@ -754,6 +800,7 @@ def validate_evidence_atoms(package: dict[str, Any], reading: dict[str, Any]) ->
         or invalid_types
         or invalid_confidence
         or duplicate_ids
+        or claim_number_drift_list
     ):
         status = "fail"
     warnings = [
@@ -768,11 +815,13 @@ def validate_evidence_atoms(package: dict[str, Any], reading: dict[str, Any]) ->
         *bad_source_refs[:5],
         *page_mismatches[:5],
         *quote_not_found[:5],
+        *(f"claim_number_drift:{item}" for item in claim_number_drift_list[:5]),
     ]
     return {
         "paper_id": paper_id,
         "status": status,
         "atom_count": atom_count,
+        "claim_number_drift_count": len(claim_number_drift_list),
         "unknown_reading_block_count": len(unknown_reading_blocks),
         "bad_source_ref_count": len(bad_source_refs),
         "page_mismatch_count": len(page_mismatches),

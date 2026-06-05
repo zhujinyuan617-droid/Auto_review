@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
 
 from docdecomp.io_utils import atomic_write_text
 from docdecomp.library_index import write_library_index
+from docdecomp.paper_profile import CONTENT_CJK_DEFER_THRESHOLD, cjk_ratio
 
 
 STAGE_ORDER = ["clean", "sections", "reading", "card", "evidence_atoms", "paper_syntheses"]
@@ -173,8 +174,8 @@ def command_for_stage(paper_id: str, stage: str, args: argparse.Namespace, run_d
         command.extend(["--config", str(Path(args.config))])
     max_attempts_by_stage = {
         "card": "4",
-        "evidence_atoms": "3",
-        "paper_syntheses": "4",
+        "evidence_atoms": "5",
+        "paper_syntheses": "6",
     }
     if stage in max_attempts_by_stage:
         command.extend(["--max-ai-attempts", max_attempts_by_stage[stage]])
@@ -218,6 +219,16 @@ def run_stage(paper_id: str, stage: str, args: argparse.Namespace, run_dir: Path
     return StageResult(paper_id=paper_id, stage=stage, status=status, log_path=log_path)
 
 
+def _content_cjk_ratio(paper_dir: Path) -> float:
+    content = paper_dir / "content.md"
+    if not content.exists():
+        return 0.0
+    try:
+        return cjk_ratio(content.read_text(encoding="utf-8"))
+    except OSError:
+        return 0.0
+
+
 def run_paper(paper_id: str, stages: list[str], args: argparse.Namespace, run_dir: Path) -> list[StageResult]:
     results: list[StageResult] = []
     for stage in stages:
@@ -225,6 +236,20 @@ def run_paper(paper_id: str, stages: list[str], args: argparse.Namespace, run_di
         results.append(result)
         if result.status.startswith("failed"):
             break
+        # Language gate: after the clean package exists, defer bilingual/Chinese
+        # papers before spending AI on them (the filename classifier cannot see a
+        # Chinese body behind an English title; see S85).
+        if stage == "clean":
+            ratio = _content_cjk_ratio(Path(args.library_dir) / paper_id)
+            if ratio > CONTENT_CJK_DEFER_THRESHOLD:
+                results.append(
+                    StageResult(
+                        paper_id=paper_id,
+                        stage="language_gate",
+                        status=f"deferred:non_english_content_cjk_{ratio:.0%}",
+                    )
+                )
+                break
     return results
 
 
