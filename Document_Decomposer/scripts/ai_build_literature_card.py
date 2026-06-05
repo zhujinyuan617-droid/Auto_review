@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force", action="store_true", help="Ignore AI cache and call the model.")
     parser.add_argument("--max-block-chars", type=int, default=900, help="Max chars per reading block sent to AI.")
     parser.add_argument("--max-ai-attempts", type=int, default=2, help="AI attempts before writing a failed candidate.")
+    parser.add_argument("--save-failed-attempts", action="store_true", help="Write failed AI candidates for prompt debugging.")
     return parser.parse_args()
 
 
@@ -114,6 +115,10 @@ def main() -> int:
             write_ai_cache_meta(meta_path=meta_path, fingerprint=fingerprint, outputs=[output_path])
             print(f"Wrote {output_path}")
             break
+        if args.save_failed_attempts:
+            debug_path = output_path.with_suffix(f".attempt{attempt}.failed.json")
+            write_json(debug_path, {"candidate": card, "validation": validation})
+            print(f"Wrote failed attempt {debug_path}")
         if attempt < attempts:
             print(f"Attempt {attempt} failed validation; retrying with validator feedback.")
             current_messages = build_repair_prompt(messages, card, validation)

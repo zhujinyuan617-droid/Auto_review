@@ -161,6 +161,11 @@ def build_prompt(
     user = (
         "Build one literature_card JSON for this paper using the schema_version 0.1.0 structure. "
         "Be conservative. Prefer fewer high-quality, well-evidenced items over many weak items. "
+        "Do not return an empty card when abstract, method, or result blocks are supplied. "
+        "At minimum, extract core_question from the abstract or objective block and attach one evidence object copied "
+        "from that same block. Then extract at least one study_design item from a methods block and at least one "
+        "key_findings or quantitative_results item from an abstract, results, discussion, or conclusion block when "
+        "those blocks are present. "
         "A valid output must at minimum include paper, classification, a core_question with one direct evidence quote, "
         "and at least one evidence-backed item in one of study_design, key_findings, or variables when the supplied "
         "blocks contain abstract/method/result information. "
@@ -204,6 +209,8 @@ def build_prompt(
         "item entirely. Each evidence object must have exactly these fields: "
         "{\"reading_block_id\":\"S01-RB-0009\",\"source_block_ids\":[\"S01-BLK-0018\"],"
         "\"page_start\":1,\"page_end\":1,\"quote\":\"short exact excerpt\",\"note\":\"why this supports the item\"}. "
+        "For example, if the abstract says what the paper determines, core_question.evidence should cite the abstract "
+        "reading_block_id and quote that exact objective phrase. "
         "Do not use alternate field names such as text, finding, values, source, block_id, or chunk_id in the final output. "
         "Do not put validation excuses in ai_warnings; fix the JSON by omitting unsupported items instead. "
         "Output schema keys exactly: schema_version, paper_id, paper, classification, fuzzy_keywords, "
@@ -352,12 +359,16 @@ def normalize_card_items(card: dict[str, Any], reading: dict[str, Any]) -> None:
     core = card.get("core_question")
     if isinstance(core, dict):
         normalize_evidence_list(core, reading)
+        if normalize_space(core.get("claim") or "") and not core.get("evidence"):
+            core["evidence"] = infer_evidence_for_item(core, reading, ["claim"])
     for item in card.get("key_findings") or []:
         if isinstance(item, dict):
             if "claim" not in item and "finding" in item:
                 item["claim"] = item.get("finding")
             item.setdefault("claim", "")
             normalize_evidence_list(item, reading)
+            if not item.get("evidence"):
+                item["evidence"] = infer_evidence_for_item(item, reading, ["claim"])
             keep_keys(item, {"claim", "evidence"})
     for item in card.get("fuzzy_keywords") or []:
         if isinstance(item, dict):
@@ -365,6 +376,8 @@ def normalize_card_items(card: dict[str, Any], reading: dict[str, Any]) -> None:
                 item["keyword"] = item.get("term")
             item.setdefault("keyword", "")
             normalize_evidence_list(item, reading)
+            if not item.get("evidence"):
+                item["evidence"] = infer_evidence_for_item(item, reading, ["keyword", "reason"])
             if not item.get("reason"):
                 item["reason"] = fallback_from_evidence(item)
             keep_keys(item, {"keyword", "reason", "evidence"})
@@ -375,6 +388,8 @@ def normalize_card_items(card: dict[str, Any], reading: dict[str, Any]) -> None:
             item.setdefault("name", "")
             item.setdefault("role", "unknown")
             normalize_evidence_list(item, reading)
+            if not item.get("evidence"):
+                item["evidence"] = infer_evidence_for_item(item, reading, ["name", "values_or_range"])
             if not item.get("values_or_range"):
                 item["values_or_range"] = item.get("value") or fallback_from_evidence(item, 120)
             if not item.get("name"):
@@ -386,6 +401,8 @@ def normalize_card_items(card: dict[str, Any], reading: dict[str, Any]) -> None:
                 item["aspect"] = infer_aspect(item)
             item.setdefault("detail", "")
             normalize_evidence_list(item, reading)
+            if not item.get("evidence"):
+                item["evidence"] = infer_evidence_for_item(item, reading, ["aspect", "detail"])
             if not item.get("detail"):
                 item["detail"] = fallback_from_evidence(item)
             keep_keys(item, {"aspect", "detail", "evidence"})
@@ -394,6 +411,8 @@ def normalize_card_items(card: dict[str, Any], reading: dict[str, Any]) -> None:
             item.setdefault("mechanism", "")
             item.setdefault("explanation", "")
             normalize_evidence_list(item, reading)
+            if not item.get("evidence"):
+                item["evidence"] = infer_evidence_for_item(item, reading, ["mechanism", "explanation"])
             if not item.get("mechanism"):
                 item["mechanism"] = fallback_from_evidence(item, 120)
             if not item.get("explanation"):
@@ -406,6 +425,8 @@ def normalize_card_items(card: dict[str, Any], reading: dict[str, Any]) -> None:
             item.setdefault("condition", "")
             item.setdefault("interpretation", "")
             normalize_evidence_list(item, reading)
+            if not item.get("evidence"):
+                item["evidence"] = infer_evidence_for_item(item, reading, ["metric", "value", "condition", "interpretation"])
             if not item.get("metric"):
                 item["metric"] = fallback_metric(item)
             if not item.get("interpretation"):
@@ -415,12 +436,16 @@ def normalize_card_items(card: dict[str, Any], reading: dict[str, Any]) -> None:
         if isinstance(item, dict):
             item.setdefault("limitation", "")
             normalize_evidence_list(item, reading)
+            if not item.get("evidence"):
+                item["evidence"] = infer_evidence_for_item(item, reading, ["limitation"])
             if not item.get("limitation"):
                 item["limitation"] = fallback_from_evidence(item)
             keep_keys(item, {"limitation", "evidence"})
     for item in card.get("review_section_hints") or []:
         if isinstance(item, dict):
             normalize_evidence_list(item, reading)
+            if not item.get("evidence"):
+                item["evidence"] = infer_evidence_for_item(item, reading, ["section", "reason"])
             if not item.get("section"):
                 item["section"] = infer_review_section(card)
             if not item.get("reason"):
@@ -475,7 +500,7 @@ def infer_evidence_for_item(item: dict[str, Any], reading: dict[str, Any], keys:
             "page_start": block.get("page_start"),
             "page_end": block.get("page_end"),
             "quote": short_text(block_text(block), 260),
-            "note": "Auto-inferred evidence from the most similar reading block.",
+            "note": "Most similar supplied reading block directly supports the extracted item.",
         }
     ]
 

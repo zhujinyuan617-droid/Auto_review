@@ -208,6 +208,9 @@ def build_evidence_atoms_prompt(
         "quantitative result, limitation, scope boundary, or important background statement. "
         "Do not combine distant evidence at this stage. Do not cite references-section entries. "
         "quote must be copied from the cited reading block and should usually be one sentence or sentence fragment. "
+        "Prefer exact substrings from the supplied text. Do not repair grammar, remove spaces around symbols, change "
+        "Greek/math characters, or rewrite variables such as u * or 𝛟. If a sentence is too long, copy a shorter "
+        "contiguous substring exactly as shown in the reading block. "
         "minimal_claim should be a conservative near-quote paraphrase, not a broad conclusion. "
         "source_block_ids must be copied from the cited reading block and must be a subset of that block's ids. "
         "page_start and page_end must exactly match the cited reading block. "
@@ -230,6 +233,8 @@ def build_evidence_atoms_repair_prompt(
         "The previous evidence_atoms JSON failed validation. Return a corrected complete evidence_atoms JSON object. "
         "Regenerate from the original supplied reading blocks. Do not explain and do not use Markdown. "
         "Every quote must be copied from the cited reading block exactly after whitespace normalization. "
+        "Do not rewrite math notation, punctuation, Greek symbols, or spaced variables. When a quote fails, replace it "
+        "with a shorter exact contiguous substring from the cited reading block. "
         "Drop unsupported atoms instead of inventing ids or evidence. Validation summary:\n"
         + json.dumps(validation, ensure_ascii=False)
     )
@@ -369,6 +374,39 @@ def quote_in_block(quote: str, block: dict[str, Any]) -> bool:
     return quote_text in normalize_space(block_text(block))
 
 
+def quote_overlap_score(quote: str, text: str) -> float:
+    token_pattern = r"[A-Za-z0-9𝛒𝛟𝛉𝛋𝛑ηρφθκπ][A-Za-z0-9𝛒𝛟𝛉𝛋𝛑ηρφθκπ/*.+-]*"
+    quote_terms = {
+        term.lower()
+        for term in re.findall(token_pattern, normalize_space(quote))
+        if len(term) >= 2
+    }
+    text_terms = {
+        term.lower()
+        for term in re.findall(token_pattern, normalize_space(text))
+        if len(term) >= 2
+    }
+    if not quote_terms or not text_terms:
+        return 0.0
+    return len(quote_terms & text_terms) / len(quote_terms)
+
+
+def repair_quote_to_block(quote: str, block: dict[str, Any]) -> str:
+    quote = normalize_space(quote)
+    if quote_in_block(quote, block):
+        return quote
+    best_sentence = ""
+    best_score = 0.0
+    for sentence in sentence_split(block_text(block)):
+        score = quote_overlap_score(quote, sentence)
+        if score > best_score:
+            best_score = score
+            best_sentence = sentence
+    if best_sentence and best_score >= 0.55:
+        return short_text(best_sentence, 520)
+    return quote
+
+
 def infer_topic_tags(text: str, limit: int = 8) -> list[str]:
     lowered = text.lower()
     tags: list[str] = []
@@ -434,6 +472,8 @@ def normalize_evidence_atom(atom: dict[str, Any], reading: dict[str, Any]) -> di
     quote = normalize_space(atom.get("quote") or atom.get("text") or "")
     if not quote and block:
         quote = evidence_quote(block, max_chars=280)
+    elif block:
+        quote = repair_quote_to_block(quote, block)
 
     minimal_claim = normalize_space(atom.get("minimal_claim") or atom.get("claim") or quote)
     topic_tags = normalize_string_list(atom.get("topic_tags") or atom.get("tags"), limit=10)
