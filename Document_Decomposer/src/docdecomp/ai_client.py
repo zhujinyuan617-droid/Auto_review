@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 @dataclass
@@ -23,6 +24,25 @@ class AIConfig:
 
 class AIClientError(RuntimeError):
     pass
+
+
+def run_ai_cli(main: Callable[[], int]) -> int:
+    try:
+        return main()
+    except AIClientError as exc:
+        print(f"AI error: {exc}", file=sys.stderr)
+        return 2
+
+
+PLACEHOLDER_VALUES = {
+    "https://api.example.com/v1",
+    "PUT_YOUR_API_KEY_HERE",
+    "PUT_MODEL_NAME_HERE",
+}
+
+
+def _is_placeholder(value: str) -> bool:
+    return value.strip() in PLACEHOLDER_VALUES
 
 
 def load_ai_config(root: Path, config_path: Path | None = None) -> AIConfig:
@@ -41,6 +61,12 @@ def load_ai_config(root: Path, config_path: Path | None = None) -> AIConfig:
         raise AIClientError(f"Missing api_key. Create {path} or set DOCDECOMP_AI_API_KEY.")
     if not model:
         raise AIClientError(f"Missing model. Create {path} or set DOCDECOMP_AI_MODEL.")
+    if _is_placeholder(base_url):
+        raise AIClientError(f"base_url is still a placeholder. Update {path} or set DOCDECOMP_AI_BASE_URL.")
+    if _is_placeholder(api_key):
+        raise AIClientError(f"api_key is still a placeholder. Update {path} or set DOCDECOMP_AI_API_KEY.")
+    if _is_placeholder(model):
+        raise AIClientError(f"model is still a placeholder. Update {path} or set DOCDECOMP_AI_MODEL.")
 
     return AIConfig(
         provider=data.get("provider", "openai_compatible"),

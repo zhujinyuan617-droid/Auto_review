@@ -39,3 +39,9 @@ Useful entry points:
 - `scripts/ingest_paper_downloads.py`: scan `paper_pool/paper`, dedupe by SHA-256, flag possible duplicates by DOI-like filename keys/tokens, assign stable `Sxx` ids, and stage PDFs.
 - `scripts/run_from_paper_downloads.py`: check/run Docling for missing outputs, then call `scripts/run_pipeline.py`.
 - `scripts/run_pipeline.py`: run the post-Docling document decomposition pipeline.
+
+AI configuration:
+
+- Copy `config/ai.example.json` to `config/ai.local.json` for local use, then fill in `base_url`, `api_key`, and `model`.
+- `config/ai.local.json` is ignored by Git and must not be committed.
+- Environment variables can override the local file: `DOCDECOMP_AI_BASE_URL`, `DOCDECOMP_AI_API_KEY`, and `DOCDECOMP_AI_MODEL`.

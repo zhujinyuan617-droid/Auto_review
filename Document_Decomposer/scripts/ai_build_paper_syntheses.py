@@ -11,7 +11,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from docdecomp.ai_cache import build_ai_fingerprint, cache_hit, meta_path_for, write_ai_cache_meta
-from docdecomp.ai_client import OpenAICompatibleClient, load_ai_config
+from docdecomp.ai_client import OpenAICompatibleClient, load_ai_config, run_ai_cli
 from docdecomp.evidence_synthesis import (
     build_paper_syntheses_prompt,
     build_paper_syntheses_repair_prompt,
@@ -201,4 +201,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_ai_cli(main))
