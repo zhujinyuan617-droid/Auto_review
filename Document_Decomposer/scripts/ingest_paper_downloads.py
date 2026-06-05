@@ -20,6 +20,7 @@ if str(SRC) not in sys.path:
 
 from docdecomp.io_utils import atomic_write_csv_dicts, write_json
 from docdecomp.package_builder import content_tokens
+from docdecomp.paper_profile import apply_profile
 
 
 SCHEMA_VERSION = "0.1.0"
@@ -365,6 +366,8 @@ def build_manifest(
     now = utc_now()
     papers = list(manifest.get("papers") or [])
     refresh_manifest_identity(papers)
+    for record in papers:
+        apply_profile(record)
     reserved_ids = collect_reserved_ids(manifest)
     hash_refs = collect_existing_hash_refs(manifest)
     identity_refs = collect_identity_refs(manifest)
@@ -383,6 +386,12 @@ def build_manifest(
         duplicate_refs = hash_refs.get(sha) or []
         if duplicate_refs:
             first_ref = duplicate_refs[0]
+            duplicate_record = {
+                "original_filename": pdf_path.name,
+                "original_path": str(resolved),
+                "identity_key": identity,
+            }
+            apply_profile(duplicate_record)
             rows.append(
                 {
                     "paper_id": first_ref.get("paper_id", ""),
@@ -393,6 +402,9 @@ def build_manifest(
                     "size_bytes": size_bytes,
                     "staged_pdf": "",
                     "identity_key": identity,
+                    "processing_profile": duplicate_record.get("processing_profile", ""),
+                    "language_hint": duplicate_record.get("language_hint", ""),
+                    "profile_reason": duplicate_record.get("profile_reason", ""),
                     "possible_duplicate_of": "",
                     "duplicate_of": first_ref.get("paper_id", ""),
                 }
@@ -424,6 +436,7 @@ def build_manifest(
             "first_seen_at": now,
             "last_seen_at": now,
         }
+        apply_profile(record)
         papers.append(record)
         hash_refs.setdefault(sha, []).append({"source": "manifest", "paper_id": paper_id, "path": str(resolved)})
         if identity:
@@ -444,6 +457,9 @@ def build_manifest(
                 "size_bytes": size_bytes,
                 "staged_pdf": relative_or_absolute(staged_path),
                 "identity_key": identity,
+                "processing_profile": record.get("processing_profile", ""),
+                "language_hint": record.get("language_hint", ""),
+                "profile_reason": record.get("profile_reason", ""),
                 "possible_duplicate_of": ";".join(possible_duplicates),
                 "duplicate_of": "",
             }
@@ -488,6 +504,9 @@ def main() -> int:
         "size_bytes",
         "staged_pdf",
         "identity_key",
+        "processing_profile",
+        "language_hint",
+        "profile_reason",
         "possible_duplicate_of",
         "duplicate_of",
     ]

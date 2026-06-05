@@ -12,6 +12,12 @@ from uuid import uuid4
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from docdecomp.paper_profile import classify_record, profile_label
+
 DEFAULT_MANIFEST = ROOT / "data" / "ingest" / "paper_manifest.json"
 DEFAULT_STAGING_DIR = ROOT / "data" / "ingest" / "pdfs"
 DEFAULT_DOCLING = ROOT / "envs" / "docling" / "Scripts" / "docling.exe"
@@ -71,6 +77,11 @@ def parse_args() -> argparse.Namespace:
         "--include-possible-duplicates",
         action="store_true",
         help="Process manifest records flagged as possible duplicates.",
+    )
+    parser.add_argument(
+        "--include-deferred",
+        action="store_true",
+        help="Include deferred non-English or non-article records when --all is used.",
     )
     parser.add_argument("--resume", action="store_true", help="Pass --resume to run_pipeline.py.")
     parser.add_argument("--force", action="store_true", help="Pass --force to run_pipeline.py.")
@@ -160,15 +171,42 @@ def selected_records(
     paper_ids: list[str] | None,
     use_all: bool,
     include_possible_duplicates: bool,
+    include_deferred: bool,
 ) -> list[dict]:
-    records = [record for record in manifest.get("papers") or [] if record.get("status") == "active"]
     if paper_ids:
-        wanted = set(paper_ids)
-        selected = [record for record in records if record.get("paper_id") in wanted]
+        wanted = {paper_id.upper() for paper_id in paper_ids}
+        selected = [
+            record
+            for record in manifest.get("papers") or []
+            if str(record.get("paper_id") or "").upper() in wanted
+        ]
     elif use_all:
+        records = [
+            record
+            for record in manifest.get("papers") or []
+            if record.get("status") in {"active", "deferred"}
+        ]
         selected = records
+        if not include_deferred:
+            deferred = [record for record in selected if classify_record(record).is_deferred or record.get("status") == "deferred"]
+            for record in deferred:
+                print(
+                    f"Skipping deferred paper {profile_label(record)}. "
+                    "Use --include-deferred to process deferred records."
+                )
+            selected = [
+                record
+                for record in selected
+                if not classify_record(record).is_deferred and record.get("status") != "deferred"
+            ]
     else:
         selected = []
+    missing = []
+    if paper_ids:
+        found = {str(record.get("paper_id") or "").upper() for record in selected}
+        missing = [paper_id for paper_id in wanted if paper_id not in found]
+    for paper_id in missing:
+        print(f"Paper id not found in manifest: {paper_id}")
     if include_possible_duplicates:
         return selected
     skipped = [record for record in selected if record.get("possible_duplicate_of")]
@@ -308,6 +346,7 @@ def main() -> int:
         args.paper_id,
         args.all,
         args.include_possible_duplicates,
+        args.include_deferred,
     )
     if not records:
         print("No papers selected. Use --paper-id, --all, or run ingest first.")

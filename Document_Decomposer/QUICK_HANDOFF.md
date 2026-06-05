@@ -31,6 +31,15 @@ Document_Decomposer\envs\
 
 Use `S05` as the canonical one-paper smoke test.
 
+Current scope:
+
+```text
+Default mainline: English journal articles.
+Deferred by default: Chinese/non-English papers and non-article files such as subject indexes.
+```
+
+`run_from_paper_downloads.py --all` processes English-mainline records only unless `--include-deferred` is supplied. Explicit `--paper-id Sxx` still works for targeted experiments on deferred records.
+
 Known-good final state after the latest optimization:
 
 ```text
@@ -76,6 +85,7 @@ py -m py_compile `
   scripts\ai_build_evidence_atoms.py `
   scripts\ai_build_paper_syntheses.py `
   src\docdecomp\ai_client.py `
+  src\docdecomp\paper_profile.py `
   src\docdecomp\literature_card.py `
   src\docdecomp\evidence_synthesis.py
 ```
@@ -146,12 +156,21 @@ Run from `Document_Decomposer`:
 ```powershell
 py scripts\ingest_paper_downloads.py --limit 5 --dry-run
 py scripts\run_from_paper_downloads.py --paper-id S05 --skip-ingest --skip-docling --dry-run
+py scripts\run_from_paper_downloads.py --all --skip-ingest --skip-docling --dry-run
 ```
 
 Expected for S05 after the current smoke run:
 
 ```text
 Missing Docling outputs: none
+```
+
+Expected for `--all` on the current smoke subset:
+
+```text
+S01 is skipped as deferred_non_article.
+S02/S03/S04 are skipped as deferred_non_english.
+S05 remains selected as the English-mainline smoke paper.
 ```
 
 If Docling must run on a new machine, use:
@@ -326,7 +345,8 @@ git push
 
 Recommended next move:
 
-1. Run the same staged pipeline on 2 to 3 more non-duplicate papers.
-2. Compare whether `literature_card` and `evidence_atoms` avoid fallback.
-3. Only then run larger batches.
-4. Matrix export and cross-paper synthesis are intentionally postponed.
+1. Add or select 2 to 3 more English, non-duplicate papers.
+2. Run the same staged pipeline on those English papers.
+3. Compare whether `literature_card` and `evidence_atoms` avoid fallback.
+4. Only then run larger English batches.
+5. Matrix export and cross-paper synthesis are intentionally postponed.

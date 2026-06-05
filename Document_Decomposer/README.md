@@ -34,10 +34,17 @@ Directory roles:
 
 The current production target is a reproducible package workflow that converts Docling output into `library/<paper_id>/` packages with source PDFs, text blocks, figures, tables, evidence manifests, reading blocks, literature cards, hard evidence atoms, and article-internal syntheses.
 
+Current scope:
+
+- The default mainline is English journal articles.
+- Chinese/non-English papers and non-article files such as subject indexes are kept in the manifest as deferred records instead of entering default batch runs.
+- Explicit `--paper-id Sxx` runs are still allowed for deferred records when doing targeted experiments.
+- `--all` in `run_from_paper_downloads.py` means all current English-mainline records unless `--include-deferred` is provided.
+
 Useful entry points:
 
-- `scripts/ingest_paper_downloads.py`: scan `paper_pool/paper`, dedupe by SHA-256, flag possible duplicates by DOI-like filename keys/tokens, assign stable `Sxx` ids, and stage PDFs.
-- `scripts/run_from_paper_downloads.py`: check/run Docling for missing outputs, then call `scripts/run_pipeline.py`.
+- `scripts/ingest_paper_downloads.py`: scan `paper_pool/paper`, dedupe by SHA-256, flag possible duplicates by DOI-like filename keys/tokens, assign stable `Sxx` ids, classify the paper profile, and stage PDFs.
+- `scripts/run_from_paper_downloads.py`: check/run Docling for missing outputs, then call `scripts/run_pipeline.py`; default batch selection skips deferred non-English/non-article records.
 - `scripts/run_pipeline.py`: run the post-Docling document decomposition pipeline.
 - `start_assistant.bat`: double-click interactive assistant for local checks, AI setup, S05 validation, dry-runs, staged runs, and AI log diagnosis.
 - `scripts/interactive_assistant.py --status`: non-interactive assistant status check for automation.

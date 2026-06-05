@@ -15,6 +15,10 @@ The main design rule is to keep intake, evidence extraction, and synthesis as
 separate layers. `paper_pool` decides whether a PDF can enter the formal pool.
 `Document_Decomposer` turns formal PDFs into structured evidence packages.
 
+Current processing scope is intentionally narrow: the default Document
+Decomposer mainline is English journal articles. Chinese/non-English papers and
+non-article files are kept as deferred records for later targeted work.
+
 ## Repository Layout
 
 ```text
@@ -103,6 +107,6 @@ Document_Decomposer\start_assistant.bat
 ## Current Next Milestones
 
 1. Run the S05 checklist in `Document_Decomposer\QUICK_HANDOFF.md` from a fresh session or clone.
-2. Repeat the staged pipeline on 2 to 3 more non-duplicate papers.
+2. Repeat the staged pipeline on 2 to 3 more English, non-duplicate papers.
 3. Confirm `literature_card` and `evidence_atoms` avoid fallback across varied papers.
-4. After the workflow is stable, design matrix export and cross-paper synthesis.
+4. After the English workflow is stable, design matrix export and cross-paper synthesis.

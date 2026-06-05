@@ -55,6 +55,15 @@ S05 proved the current end-to-end route:
 PDF -> Docling -> clean -> sections -> reading -> card -> evidence_atoms -> paper_syntheses
 ```
 
+Current processing scope:
+
+```text
+Default mainline: English journal articles.
+Deferred: Chinese/non-English papers and non-article files such as subject indexes.
+```
+
+`run_from_paper_downloads.py --all` now means all English-mainline records by default. Deferred records can still be processed explicitly with `--paper-id Sxx`, or included in batch experiments with `--include-deferred`.
+
 ## Current Repository State
 
 This project is now managed in the monorepo:
@@ -134,6 +143,7 @@ Current runner status:
 - Input: downloaded PDFs, usually `..\paper_pool\paper`
 - Output: `data/ingest/paper_manifest.json`, `data/ingest/pdfs/Sxx_*.pdf`, `reports/paper_ingest_report.csv`
 - Script role: compute SHA-256, skip exact duplicate files, assign stable `Sxx` ids to new PDFs, flag possible same-paper duplicates by DOI-like filename keys and token overlap.
+- Scope role: classify new/old records with `processing_profile`, `language_hint`, and `profile_reason`; Chinese/non-English and non-article records are marked deferred.
 
 `run_from_paper_downloads.py`
 
@@ -143,6 +153,7 @@ Current runner status:
 - Docling runtime: defaults to PATH `docling`, then `envs/docling/Scripts/docling.exe`; see `DOCLING_INSTALL.md`.
 - Windows compatibility: sets Hugging Face symlink-disabling env vars before launching subprocesses.
 - Safety rule: records with `possible_duplicate_of` are skipped unless `--include-possible-duplicates` is provided.
+- Scope rule: `--all` skips deferred records unless `--include-deferred` is provided; explicit `--paper-id Sxx` remains allowed for targeted experiments.
 
 `ai_organize_sections.py`
 
@@ -240,6 +251,7 @@ Remove temporary `*debug*`, `*optimized*`, and `*.failed.json` files after diagn
 - Cross-paper synthesis has not been implemented.
 - Matrix/review draft export has not been implemented.
 - Full `paper_pool/paper` ingest has not yet been run. Only a `--limit 5` smoke ingest exists in the current monorepo workflow.
+- Current product focus is English papers. The Chinese long-PDF route is intentionally deferred, even though targeted experiments may still be run by explicit paper id.
 - Possible duplicates are skipped by default by `run_from_paper_downloads.py`.
 - Generated `data/`, `library/`, `reports/`, and local runtimes are ignored and not part of Git history.
 - `config/ai.local.json` is ignored and must stay local.
@@ -257,9 +269,10 @@ Remove temporary `*debug*`, `*optimized*`, and `*.failed.json` files after diagn
 
 ## Next Work
 
-1. Run the same staged S05 workflow on 2 to 3 more non-duplicate papers.
-2. Check whether `literature_card` and `evidence_atoms` avoid fallback on varied papers.
-3. Only after those smoke tests pass, run larger batches.
-4. Review duplicate policy before full ingest.
-5. Build matrix export using `literature_card.json`, `evidence_atoms.json`, and `paper_syntheses.json`.
-6. Design cross-paper synthesis as a separate layer.
+1. Ingest or select 2 to 3 additional English, non-duplicate papers.
+2. Run the same staged S05 workflow on those English papers.
+3. Check whether `literature_card` and `evidence_atoms` avoid fallback on varied English papers.
+4. Only after those smoke tests pass, run larger English batches.
+5. Review duplicate and deferred-profile policy before full ingest.
+6. Build matrix export using `literature_card.json`, `evidence_atoms.json`, and `paper_syntheses.json`.
+7. Design cross-paper synthesis as a separate layer.

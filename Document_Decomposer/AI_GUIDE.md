@@ -40,6 +40,15 @@ evidence_atoms: ok, 14 atoms, ai_warnings=[]
 paper_syntheses: ok, 4 syntheses, ai_warnings=[]
 ```
 
+Current product scope:
+
+```text
+Default mainline: English journal articles.
+Deferred by default: Chinese/non-English papers and non-article files such as subject indexes.
+```
+
+`scripts/run_from_paper_downloads.py --all` processes English-mainline records only unless `--include-deferred` is passed. Explicit `--paper-id Sxx` remains allowed for targeted experiments on deferred records.
+
 ## Non-Negotiable Rules
 
 - Do not print or expose `config/ai.local.json`, API keys, or auth tokens.
@@ -88,6 +97,14 @@ Register downloaded PDFs with hash dedupe and stable staged names:
 
 ```powershell
 py scripts\ingest_paper_downloads.py --source-dir ..\paper_pool\paper
+```
+
+The ingest step also classifies each record:
+
+```text
+processing_profile: english_mainline | deferred_non_english | deferred_non_article
+language_hint: en | non_en | unknown
+profile_reason: short classifier reason
 ```
 
 Dry-run the full upstream entry point from registered PDFs:
@@ -326,9 +343,11 @@ paper_syntheses.json       Article-internal syntheses supported by evidence atom
 
 - Built by `scripts/ingest_paper_downloads.py`.
 - Tracks downloaded PDFs by SHA-256, original filename/path, staged PDF path, stable `Sxx` id, and possible duplicate hints.
+- Tracks `processing_profile`, `language_hint`, and `profile_reason` so default batches stay focused on English papers.
 - Exact duplicate PDFs with the same SHA-256 are not assigned new ids.
 - Different PDF files that look like the same article are flagged with `possible_duplicate_of`; they are not automatically merged.
 - `scripts/run_from_paper_downloads.py` skips possible duplicates by default unless `--include-possible-duplicates` is provided.
+- `scripts/run_from_paper_downloads.py --all` skips deferred records by default unless `--include-deferred` is provided.
 
 `content_blocks.json`:
 
@@ -436,7 +455,7 @@ Be careful with:
 ## Next Likely Work
 
 - Decide whether `schema_hint` should be merged into the first system prompt for provider compatibility.
-- Expand the ingest manifest from the current smoke subset to the full `paper_pool/paper` directory after reviewing possible duplicates.
+- Expand the English-mainline ingest from the current smoke subset after reviewing possible duplicates and deferred classifications.
 - Design and implement matrix export from `literature_card.json`, `evidence_atoms.json`, and `paper_syntheses.json`.
 - Design cross-paper synthesis: combine hard evidence and article-internal syntheses across multiple papers.
 - If a `tool_bakeoff` empty directory remains in the active project, it is a locked deletion leftover; the content backup is under `_backups`.
