@@ -17,6 +17,18 @@ DEFAULT_STAGING_DIR = ROOT / "data" / "ingest" / "pdfs"
 DEFAULT_DOCLING = ROOT / "envs" / "docling" / "Scripts" / "docling.exe"
 
 
+def safe_console() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name)
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            try:
+                stream.reconfigure(errors="replace")
+            except Exception:
+                pass
+
+
 def default_paper_source() -> Path:
     return ROOT.parent / "paper_pool" / "paper"
 
@@ -276,6 +288,7 @@ def pipeline_command(records: list[dict], args: argparse.Namespace) -> list[str]
 
 
 def main() -> int:
+    safe_console()
     args = parse_args()
     run_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{uuid4().hex[:8]}"
     run_dir = Path(args.reports_dir) / f"from_downloads_{run_id}"

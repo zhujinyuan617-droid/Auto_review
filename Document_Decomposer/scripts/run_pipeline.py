@@ -23,6 +23,18 @@ from docdecomp.library_index import write_library_index
 STAGE_ORDER = ["clean", "sections", "reading", "card", "evidence_atoms", "paper_syntheses"]
 
 
+def safe_console() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name)
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            try:
+                stream.reconfigure(errors="replace")
+            except Exception:
+                pass
+
+
 @dataclass
 class StageResult:
     paper_id: str
@@ -297,6 +309,7 @@ def write_summary(run_dir: Path, results: list[StageResult]) -> None:
 
 
 def main() -> int:
+    safe_console()
     args = parse_args()
     paper_ids = discover_paper_ids(args)
     if not paper_ids:

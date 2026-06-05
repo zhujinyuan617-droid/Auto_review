@@ -25,6 +25,18 @@ from docdecomp.package_builder import content_tokens
 SCHEMA_VERSION = "0.1.0"
 
 
+def safe_console() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name)
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            try:
+                stream.reconfigure(errors="replace")
+            except Exception:
+                pass
+
+
 def default_source_dir() -> Path:
     return ROOT.parent / "paper_pool" / "paper"
 
@@ -448,6 +460,7 @@ def build_manifest(
 
 
 def main() -> int:
+    safe_console()
     args = parse_args()
     source_dirs = [Path(path) for path in args.source_dir] or [default_source_dir()]
     manifest_path = Path(args.manifest)
