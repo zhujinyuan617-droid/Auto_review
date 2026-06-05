@@ -349,9 +349,12 @@ def main() -> int:
         results.extend(run_validation(validation_ids, args, run_dir))
 
     write_summary(run_dir, results)
-    index_rows = write_library_index(Path(args.library_dir))
     print(f"Run directory: {run_dir}")
-    print(f"Library index: {Path(args.library_dir) / 'index.csv'} ({len(index_rows)} papers)")
+    if args.dry_run:
+        print(f"Library index: {Path(args.library_dir) / 'index.csv'} (dry-run, not refreshed)")
+    else:
+        index_rows = write_library_index(Path(args.library_dir))
+        print(f"Library index: {Path(args.library_dir) / 'index.csv'} ({len(index_rows)} papers)")
     for result in results:
         print(f"{result.paper_id} {result.stage}: {result.status}")
 
