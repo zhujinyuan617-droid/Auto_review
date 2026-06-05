@@ -2,7 +2,7 @@
 
 This guide is for future AI agents working in this project. Read it before changing code or running batch jobs.
 
-For the shortest reproducible end-to-end check, read `QUICK_HANDOFF.md` first. It contains the current S05 smoke-test commands, redacted AI-config check, expected validation counts, and fallback diagnosis steps.
+For the current project snapshot and open problems, read `HANDOFF.md` first.
 
 ## Current Truth
 

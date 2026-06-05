@@ -20,7 +20,7 @@ from docdecomp.ai_client import AIClientError, OpenAICompatibleClient, load_ai_c
 
 
 CONFIG_PATH = ROOT / "config" / "ai.local.json"
-QUICK_HANDOFF = ROOT / "QUICK_HANDOFF.md"
+HANDOFF = ROOT / "HANDOFF.md"
 STAGES = ["clean", "sections", "reading", "card", "evidence_atoms", "paper_syntheses", "validate"]
 
 
@@ -485,7 +485,7 @@ def print_menu() -> None:
     print("6. 运行某篇论文的指定阶段")
     print("7. AI 诊断最近日志")
     print("8. AI 给下一步建议")
-    print("9. 打开 QUICK_HANDOFF.md")
+    print("9. 打开 HANDOFF.md")
     print("0. 退出")
 
 
@@ -544,7 +544,7 @@ def main() -> int:
             next_step_with_ai()
             pause()
         elif choice == "9":
-            open_file(QUICK_HANDOFF)
+            open_file(HANDOFF)
             pause()
         else:
             print("选择无效。")

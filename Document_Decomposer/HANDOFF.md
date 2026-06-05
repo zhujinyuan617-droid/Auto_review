@@ -89,12 +89,6 @@ final validators: ok
 AI fallback warnings: none
 ```
 
-详细批测记录在：
-
-```text
-BATCH_TEST_HANDOFF.md
-```
-
 ## 当前主要文件
 
 核心模块：
@@ -170,37 +164,3 @@ scripts/validate_paper_syntheses.py
 9. 新电脑迁移仍需要注意本地配置。
 
    代码在 GitHub 上，但 AI key、Docling 环境、本地 PDF、生成结果都不进 Git。换电脑时需要重新配置。
-
-## 常用检查命令
-
-从仓库根目录：
-
-```powershell
-git status --short --ignored
-```
-
-从 `Document_Decomposer`：
-
-```powershell
-py -m compileall src scripts
-```
-
-验证 S05：
-
-```powershell
-py scripts\run_pipeline.py --paper-id S05 --stage validate --library-dir library --reports-dir reports
-```
-
-验证 S10-S19：
-
-```powershell
-py scripts\run_pipeline.py --paper-id S10 --paper-id S11 --paper-id S12 --paper-id S13 --paper-id S14 --paper-id S15 --paper-id S16 --paper-id S17 --paper-id S18 --paper-id S19 --stage validate --library-dir library --reports-dir reports
-```
-
-## 交接时先看
-
-```text
-QUICK_HANDOFF.md
-BATCH_TEST_HANDOFF.md
-AI_GUIDE.md
-```

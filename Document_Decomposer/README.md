@@ -17,7 +17,7 @@ PDF
 -> literature matrix / review draft
 ```
 
-For AI agents and detailed operating rules, read [AI_GUIDE.md](AI_GUIDE.md) first. For a fast end-to-end verification checklist, read [QUICK_HANDOFF.md](QUICK_HANDOFF.md). For the current handoff snapshot, read [HANDOFF.md](HANDOFF.md).
+For AI agents and detailed operating rules, read [AI_GUIDE.md](AI_GUIDE.md) first. For the current project snapshot and open problems, read [HANDOFF.md](HANDOFF.md).
 
 Directory roles:
 
