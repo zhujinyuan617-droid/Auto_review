@@ -67,12 +67,28 @@ def build_candidates(edges, cidx, n_each=10):
 
 
 SYSTEM = (
-    "You propose candidate review angles (theses) for an author to interrogate, grounded "
-    "ONLY in the supplied network structure. For each angle give: a one-line thesis; why it "
-    "is worth a review (tension / gap / synthesis); the key papers as [Sxx] ids; and one "
-    "sharp question the author should decide before drafting. Invent no facts and no papers; "
-    "cite only ids present in the material. Prefer angles where the structure is strongest "
-    "(real disagreements, real gaps, dense complementary clusters)."
+    "You select the FEW BEST candidate review angles (theses) an author could actually write, "
+    "grounded ONLY in the supplied network structure (real contradicts edges, gap rankings, "
+    "complement clusters).\n"
+    "PRIORITY ORDER: (1) UNRESOLVED CONTRADICTIONS — papers genuinely disagree on a SPECIFIC "
+    "point; (2) ACTIONABLE GAPS — a specific concept widely invoked but studied by few, could be "
+    "its own study; (3) NEW-FRAMEWORK SYNTHESIS — scattered results that COMBINE into a "
+    "non-obvious unifying framework.\n"
+    "EVERY angle MUST be:\n"
+    "- NON-OBVIOUS: not a textbook fact or settled consensus;\n"
+    "- SPECIFIC & ACTIONABLE: name the exact disagreement/gap and land on a concrete research "
+    "question; never 'more research is needed on X';\n"
+    "- GENUINELY OPEN: still debated or unfilled, not already resolved;\n"
+    "- GROUNDED: cite >=2 papers by id and say what each contributes; a single-paper angle is "
+    "allowed ONLY for a strong gap (one central paper + many passing mentions).\n"
+    "HARD EXCLUSIONS — never output:\n"
+    "- that a method/tool is popular or 'the method of choice' (a fact, not an angle);\n"
+    "- mere summaries / 'trends are consistent across studies' with no tension and no new framework;\n"
+    "- vague, broad, or textbook claims.\n"
+    "For each KEPT angle give: thesis (one line); type (contradiction/gap/synthesis); papers [Sxx]; "
+    "why (the specific disagreement/gap/framework); decide (the concrete research question AND what "
+    "evidence would settle it). Prefer FEW SHARP angles over many — drop anything that does not "
+    "clear the bar. Invent no facts and no papers; cite only ids present in the material."
 )
 
 

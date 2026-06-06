@@ -18,9 +18,14 @@
 - `ai_build_edges.py` — AI 读卡片**摘要**判 supports/contradicts/complements → `edges.json`。
 - `build_concept_index.py` — 概念→段落索引(中心/一笔带过 + 空白榜 + central_evidence;纯脚本)。
 
-## use/ —— 用关联网
-- `query_network.py` — 按概念/按论文接地查询(只读)。
-- `propose_angles.py` — 从矛盾/空白/互补簇生成候选综述角度。
+## use/ —— 用关联网(找灵感 → 刨析 → 出稿)
+**交互流程(每步对应一个脚本,AI 只在脚本里干活,人在最后定):**
+1. `propose_angles.py` — DeepSeek 从矛盾/空白/互补簇捞**候选创新点**(提示词里编码了标准:
+   优先 矛盾>空白>新框架综合;排除"方法流行度/趋势总结/泛泛";宁缺毋滥)。
+2. `query_network.py` — 纯脚本,把某角度的论文+关系+片段**拉到面前**(只读)。
+3. `verify_angle.py` — DeepSeek **读原文判**所给矛盾是 真/假/有条件(怀疑式,不信 flag);
+   产出 verdict + 调和变量 + 逐字引文。**注意:最弱环是"取原文"——取不全就判错**(见 ISSUES I10/I13)。
+4. 人(你)对着证据**最终定夺**;定了论点再 `draft_section.py` 出稿。
 - `draft_section.py` — 接地出稿(从 block 取逐字引文 + 数字保真闸;可选风格 pass)。
 - `build_graph_html.py` — 导出自建 HTML 交互图(非 Obsidian)。
 
