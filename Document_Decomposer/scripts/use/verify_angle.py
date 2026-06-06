@@ -111,38 +111,66 @@ def check_quotes(evidence: list[dict], source_norm: dict[str, str]) -> list[dict
 
 
 PROSECUTOR = (
-    "You are the PROSECUTOR. Build the STRONGEST possible case that the claimed relation is REAL "
-    "-- that the papers genuinely disagree (or genuinely connect) exactly as claimed. Read each "
-    "paper's FULL text and HUNT for the specific sentence in EACH paper that states its "
-    "direction/finding on the exact point in question (e.g. how a variable affects an outcome). "
-    "Copy those sentences VERBATIM, exactly as written, including any OCR artifacts; do not "
-    "paraphrase. If, after a thorough search, the evidence for REAL is genuinely weak, say so "
-    "honestly. NEVER invent a quote -- only copy text that is present in the papers."
+    "You are the PROSECUTOR, arguing the claimed relation is REAL. Read each paper's FULL text and "
+    "find the sentence in EACH paper stating its finding on the exact point. Copy them VERBATIM "
+    "(including OCR artifacts; do not paraphrase). For EACH piece of evidence, give your REASONING: "
+    "what QUANTITY/METRIC that paper measures, under what CONDITIONS, and why this establishes a "
+    "genuine opposition on the SAME quantity under comparable conditions. Then give an overall "
+    "reasoned argument for why it is a real contradiction. If the case for REAL is genuinely weak, "
+    "say so honestly. COVERAGE: supply at least one verbatim quote for EVERY paper in the material; "
+    "search the whole paper (abstract, results, discussion, conclusion, figure captions) until you "
+    "find each paper's statement on the point. If a paper truly has no relevant sentence after a "
+    "thorough search, say so explicitly -- do not silently omit it. NEVER invent a quote."
 )
 DEFENSE = (
-    "You are the DEFENSE. Build the STRONGEST possible case that the claimed relation is NOT real: "
-    "either FALSE (the papers actually agree, or are about DIFFERENT quantities/systems so they do "
-    "not truly conflict) or merely CONDITIONAL (both true; they differ only because of a "
-    "reconciling variable such as substrate/mineral, pore size, pressure, temperature, wettability, "
-    "or method/force field). Read each paper's FULL text, quote VERBATIM the sentences that undercut "
-    "the claim or expose the reconciling variable, and NAME that variable. NEVER invent a quote."
+    "You are the DEFENSE, arguing the relation is NOT a real contradiction. Using verbatim source "
+    "+ explicit REASONING, show why the claim is FALSE, CONDITIONAL, or OVERSTATED/INCOMPLETE. "
+    "Check, in order: (1) Do the two papers measure the SAME quantity? Flagged contradictions are "
+    "often FALSE because they compare DIFFERENT quantities (e.g. flux vs permeability, sweep vs "
+    "displacement efficiency, adsorption amount vs selectivity, one gas's amount vs another's) -- "
+    "if so, quote each paper's measured quantity and reason why they are not comparable. (Different "
+    "quantity means the PROPERTY ITSELF differs, e.g. flux vs permeability -- NOT the same property "
+    "measured in a different system; that is conditional, not false.) (2) Do they "
+    "operate under different CONDITIONS (substrate/mineral, pore size/structure, pressure, "
+    "temperature, phase, wettability, method/force field)? -- if so, name the reconciling variable. "
+    "(3) Is one paper's claim merely OVERSTATED beyond what its quote supports? Quote VERBATIM for "
+    "every point and reason explicitly. COVERAGE: try to supply a verbatim quote for EVERY paper "
+    "(search abstract/results/discussion/conclusion/captions); if a paper has no relevant sentence "
+    "after thorough search, say so explicitly. NEVER invent a quote."
 )
 JUDGE = (
-    "You are the JUDGE. You receive a CLAIM, the PROSECUTOR's case (arguing REAL) and the DEFENSE's "
-    "case (arguing FALSE/CONDITIONAL). Quotes marked UNVERIFIED do NOT exist in the source -- give "
-    "them ZERO weight. Decide from the VERIFIED quotes alone: 'real', 'false', or 'conditional'. "
-    "If conditional, name the reconciling variable. Set confidence 'high'|'medium'|'low' -- use "
-    "'low' when the verified evidence is thin or the two sides' verified quotes genuinely conflict. "
-    "List the decisive verified quotes. Be honest; do NOT split the difference just to be safe."
+    "You are the JUDGE. Do NOT merely tally votes or pick a side -- reason INDEPENDENTLY from the "
+    "VERIFIED quotes only (quotes marked UNVERIFIED do not exist in the source; give them ZERO "
+    "weight). Decide by this ORDERED procedure:\n"
+    "1. Name each paper's MEASURED QUANTITY -- the physical property itself (e.g. 'permeability', "
+    "'molecular flux', 'displacement efficiency', 'CO2 selectivity'), INDEPENDENT of the system it "
+    "is measured in.\n"
+    "2. If the papers report DIFFERENT properties (e.g. flux vs permeability; sweep vs displacement "
+    "efficiency; CH4 amount vs CO2 amount) -> 'false' (not comparable).\n"
+    "3. If they report the SAME property, compare SYSTEM/CONDITIONS (substrate, pore size/structure, "
+    "pressure, temperature, phase, network vs single pore...):\n"
+    "   - same property + comparable conditions + opposite results -> 'real';\n"
+    "   - same property + different system/conditions -> 'conditional' (name that as the reconciling "
+    "variable). Measuring the SAME property in a different system/structure/material is NOT a "
+    "different quantity -- it is 'conditional', NEVER 'false'.\n"
+    "4. If a paper central to the claim has NO verified quote about its finding -> 'undetermined' "
+    "(name the missing paper). 'false' requires POSITIVE evidence; never infer it from absence.\n"
+    "WORKED EXAMPLES: permeability in a 3D pore network vs in a single nanotube = SAME quantity "
+    "(permeability), different system -> conditional (reconciling = pore structure). Flux "
+    "(amount/time) vs permeability (flux per pressure gradient) = DIFFERENT quantities -> false.\n"
+    "In the explanation, write each paper's measured quantity and your reasoning. Set confidence "
+    "'high'|'medium'|'low' (low when verified evidence is thin). Be honest; do NOT split the "
+    "difference just to be safe."
 )
 
 ADV_SCHEMA = (
     'Respond with JSON: {"position":"real|false|conditional","reconciling_variable":"<or null>",'
-    '"evidence":[{"paper":"Sxx","quote":"<verbatim sentence>","why":"<one line>"}],'
-    '"argument":"<2-3 sentences>"}'
+    '"evidence":[{"paper":"Sxx","quote":"<verbatim sentence>",'
+    '"why":"<your reasoning: what quantity/condition this is, and why it does/does not support a real contradiction>"}],'
+    '"argument":"<your overall reasoning, 2-4 sentences>"}'
 )
 JUDGE_SCHEMA = (
-    'Respond with JSON: {"verdict":"real|false|conditional","reconciling_variable":"<or null>",'
+    'Respond with JSON: {"verdict":"real|false|conditional|undetermined","reconciling_variable":"<or null>",'
     '"confidence":"high|medium|low","decisive_quotes":[{"paper":"Sxx","quote":"<verbatim>"}],'
     '"explanation":"<2-4 sentences>"}'
 )
