@@ -197,7 +197,14 @@ def run_command(command: list[str], log_path: Path, dry_run: bool) -> int:
         print(command_text(command))
         return 0
 
-    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
     output = header
     if completed.stdout:
         output += completed.stdout
@@ -368,9 +375,19 @@ def main() -> int:
             for result in results
             if result.paper_id != "*" and result.status.startswith("failed")
         }
-        validation_ids = paper_ids if args.stage == "validate" else [
-            paper_id for paper_id in paper_ids if paper_id not in failed_papers
-        ]
+        if args.stage == "validate":
+            validation_ids = paper_ids
+        else:
+            completed_papers = {
+                result.paper_id
+                for result in results
+                if result.stage == STAGE_ORDER[-1] and result.status in {"ok", "skipped"}
+            }
+            validation_ids = [
+                paper_id
+                for paper_id in paper_ids
+                if paper_id in completed_papers and paper_id not in failed_papers
+            ]
         results.extend(run_validation(validation_ids, args, run_dir))
 
     write_summary(run_dir, results)

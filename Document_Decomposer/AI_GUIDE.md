@@ -65,14 +65,24 @@ Deferred by default: Chinese/non-English papers and non-article files such as su
 
 `scripts/run_from_paper_downloads.py --all` processes English-mainline records only unless `--include-deferred` is passed. Explicit `--paper-id Sxx` remains allowed for targeted experiments on deferred records.
 
+Preferred full-library entry point:
+
+```powershell
+py scripts\run_workflow_with_recovery.py --all --config config\ai.local.json --parallel 6 --docling-parallel 2
+```
+
+This runner marks known bad PDFs from `config/docling_unresolved.json`, skips them by default, reruns only AI/validator stage failures, and writes `final_report.json` / `final_report.md`. Do not manually rescue every Docling-failed PDF unless the user explicitly asks.
+
 ## Non-Negotiable Rules
 
 - Do not print or expose `config/ai.local.json`, API keys, or auth tokens.
 - Do not manually edit generated JSON just to make validation pass.
 - If output is bad, fix the prompt, script logic, or validator, then rerun.
+- The workflow runner may rerun stage scripts, but it must not hand-edit generated `reading_blocks.json`, `literature_card.json`, `evidence_atoms.json`, or `paper_syntheses.json`.
+- Docling-unresolved PDFs are normal exclusions in large batches; mark them in `config/docling_unresolved.json` and continue.
 - Keep Docling-derived source evidence intact. `content_blocks.json` is the bottom evidence layer.
 - Every source block must be represented exactly once in `reading_blocks.json`, except when a validator explicitly reports a source-layer issue.
-- `literature_card.json` must cite evidence with `reading_block_id`, `source_block_ids`, `page_start`, `page_end`, and a short exact quote.
+- In schema v2, `literature_card.json` is a slim navigation card and must not contain evidence objects or quotes; source-grounded facts stay in `reading_blocks.json` and `evidence_atoms.json`.
 - `evidence_atoms.json` is the hard evidence layer. Each atom must cite one `reading_block_id`, use valid `source_block_ids`, and keep `quote` as exact source text.
 - `paper_syntheses.json` is the article-internal inference layer. It must cite `evidence_atom_id` values only; it must not cite reading blocks directly.
 - Do not merge article-internal synthesis prompts into the literature-card prompt. Keep hard evidence, literature-card extraction, and synthesis separate.
@@ -81,11 +91,12 @@ Deferred by default: Chinese/non-English papers and non-article files such as su
 ## Directory Roles
 
 ```text
-data/docling/json        Docling JSON inputs (currently S02, S05-S06, S08-S19)
-data/docling/md          Docling Markdown inputs (same set as json)
+data/docling/json        Docling JSON inputs
+data/docling/md          Docling Markdown inputs
 data/ingest              PDF ingest manifest and staged stable PDF names
 library                  Current generated paper packages
 reports                  Quality reports and regression records
+config/docling_unresolved.json  Known bad PDFs to mark/skip by default
 schemas                  JSON schemas
 scripts                  CLI entry points
 src/docdecomp            Reusable implementation modules
@@ -139,6 +150,16 @@ py scripts\run_from_paper_downloads.py `
   --paper-id S14 `
   --skip-ingest `
   --baseline reports\manual_article_synthesis_baseline.json
+```
+
+Run the recommended full-library workflow with recovery/reporting:
+
+```powershell
+py scripts\run_workflow_with_recovery.py `
+  --all `
+  --config config\ai.local.json `
+  --parallel 6 `
+  --docling-parallel 2
 ```
 
 Build clean packages from Docling output:
@@ -467,7 +488,7 @@ Be careful with:
 ## Next Likely Work
 
 - Decide whether `schema_hint` should be merged into the first system prompt for provider compatibility.
-- Expand the English-mainline ingest from the current smoke subset after reviewing possible duplicates and deferred classifications.
+- Rebuild the connection layer on the expanded 255-paper core set, then regenerate graph/query/angle outputs.
 - Design and implement matrix export from `literature_card.json`, `evidence_atoms.json`, and `paper_syntheses.json`.
 - Design cross-paper synthesis: combine hard evidence and article-internal syntheses across multiple papers.
 - If a `tool_bakeoff` empty directory remains in the active project, it is a locked deletion leftover; the content backup is under `_backups`.

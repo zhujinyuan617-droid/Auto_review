@@ -8,7 +8,7 @@ time the page is opened.
 
 Nodes  = papers (size by degree, colour by a lightweight community label).
 Edges  = candidate links (width by IDF score). If edges.json exists, edges are
-         coloured by relation type (supports/contradicts/extends/fills_gap).
+         coloured by relation type (supports/contradicts/complements).
 Click a node -> side panel with its card summary and typed neighbour list.
 """
 
@@ -35,17 +35,27 @@ def load_cards():
         c = json.loads(path.read_text(encoding="utf-8"))
         paper = c.get("paper", {}) or {}
         cl = c.get("classification", {}) or {}
-        cq = (c.get("core_question") or {}).get("claim", "")
-        kfs = []
-        for kf in (c.get("key_findings") or [])[:4]:
-            t = kf.get("claim") or kf.get("finding") or kf.get("detail") or ""
-            if t:
-                kfs.append(t)
+        summary = c.get("summary") if isinstance(c.get("summary"), dict) else {}
+
+        objective = str(summary.get("objective") or "").strip()
+        main_findings = [str(x).strip() for x in (summary.get("main_findings") or []) if str(x).strip()]
+        methods_systems = str(summary.get("methods_systems") or "").strip()
+
+        # Compatibility for old thick cards that have not been rebuilt to slim schema 0.2.0.
+        if not objective:
+            objective = (c.get("core_question") or {}).get("claim", "")
+        if not main_findings:
+            for kf in (c.get("key_findings") or [])[:4]:
+                t = kf.get("claim") or kf.get("finding") or kf.get("detail") or ""
+                if t:
+                    main_findings.append(t)
         cards[path.parent.name] = {
             "title": paper.get("title", "") or path.parent.name,
             "year": paper.get("year", ""),
-            "core_question": cq,
-            "key_findings": kfs,
+            "schema_version": c.get("schema_version", ""),
+            "objective": objective,
+            "main_findings": main_findings,
+            "methods_systems": methods_systems,
             "topics": cl.get("domain_tags", []) or [],
             "methods": cl.get("methods", []) or [],
             "objects": cl.get("research_objects", []) or [],
@@ -120,8 +130,10 @@ def main() -> int:
             "title": f"{n}: {c.get('title','')[:80]} (deg {d})",
             "card": {
                 "title": c.get("title", ""), "year": c.get("year", ""),
-                "core_question": c.get("core_question", ""),
-                "key_findings": c.get("key_findings", []),
+                "schema_version": c.get("schema_version", ""),
+                "objective": c.get("objective", ""),
+                "main_findings": c.get("main_findings", []),
+                "methods_systems": c.get("methods_systems", ""),
                 "topics": c.get("topics", []), "methods": c.get("methods", []),
                 "objects": c.get("objects", []),
             },
@@ -218,8 +230,10 @@ network.on('click', p=>{
   document.getElementById('side').innerHTML = `
     <h2>${id} · ${c.title||''}</h2>
     <p class="muted">${c.year||''}</p>
-    <p><b>研究问题:</b> ${c.core_question||'<span class=muted>—</span>'}</p>
-    ${c.key_findings.length?`<p><b>主要发现:</b></p><ul>${c.key_findings.map(k=>`<li>${k}</li>`).join('')}</ul>`:''}
+    <p><b>卡片版本:</b> ${c.schema_version||'<span class=muted>—</span>'}</p>
+    <p><b>目标/问题:</b> ${c.objective||'<span class=muted>—</span>'}</p>
+    ${c.main_findings.length?`<p><b>方向级发现:</b></p><ul>${c.main_findings.map(k=>`<li>${k}</li>`).join('')}</ul>`:''}
+    ${c.methods_systems?`<p><b>方法/系统:</b> ${c.methods_systems}</p>`:''}
     <p><b>主题:</b> ${tags(c.topics)}</p>
     <p><b>方法:</b> ${tags(c.methods)}</p>
     <p><b>对象:</b> ${tags(c.objects)}</p>

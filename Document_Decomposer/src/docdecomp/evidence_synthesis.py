@@ -1370,6 +1370,7 @@ def write_evidence_atoms_report(report_path: Path, rows: list[dict[str, Any]]) -
         "bad_source_ref_count",
         "page_mismatch_count",
         "quote_not_found_count",
+        "claim_number_drift_count",
         "empty_required_text_count",
         "invalid_type_count",
         "duplicate_id_count",

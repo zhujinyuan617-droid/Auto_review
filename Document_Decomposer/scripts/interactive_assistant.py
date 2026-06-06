@@ -21,7 +21,11 @@ from docdecomp.ai_client import AIClientError, OpenAICompatibleClient, load_ai_c
 
 CONFIG_PATH = ROOT / "config" / "ai.local.json"
 HANDOFF = ROOT / "HANDOFF.md"
+CONNECTION_PLAN = ROOT / "CONNECTION_PLAN.md"
+ISSUES = ROOT / "ISSUES.md"
+GRAPH_HTML = ROOT / "reports" / "connection" / "graph.html"
 STAGES = ["clean", "sections", "reading", "card", "evidence_atoms", "paper_syntheses", "validate"]
+AI_CONFIG_ARG = "config\\ai.local.json"
 
 
 PRESETS = {
@@ -65,17 +69,32 @@ def command_text(command: list[str]) -> str:
     return " ".join(quote(part) for part in command)
 
 
+def child_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    return env
+
+
 def run_command(command: list[str], *, cwd: Path = ROOT) -> int:
     print()
     print("即将执行:")
     print(command_text(command))
     print()
     sys.stdout.flush()
-    return subprocess.call(command, cwd=cwd)
+    return subprocess.call(command, cwd=cwd, env=child_env())
 
 
 def capture_command(command: list[str], *, cwd: Path = ROOT) -> tuple[int, str]:
-    completed = subprocess.run(command, cwd=cwd, text=True, capture_output=True)
+    completed = subprocess.run(
+        command,
+        cwd=cwd,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        env=child_env(),
+    )
     output = completed.stdout or ""
     if completed.stderr:
         output += "\n[stderr]\n" + completed.stderr
@@ -380,6 +399,252 @@ def run_stage() -> int:
     return run_command(command)
 
 
+def full_library_dry_run() -> int:
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_from_paper_downloads.py"),
+        "--all",
+        "--config",
+        AI_CONFIG_ARG,
+        "--parallel",
+        ask("pipeline 并行数", "6"),
+        "--docling-parallel",
+        ask("Docling 并行数", "2"),
+        "--resume",
+        "--dry-run",
+    ]
+    print()
+    print("这一步只打印计划，不会真正跑 Docling 或 AI。")
+    if not confirm("确认做全库扩容 dry-run？", True):
+        print("已取消。")
+        return 0
+    return run_command(command)
+
+
+def run_full_library() -> int:
+    if not ensure_ai_ready():
+        return 1
+    parallel = ask("pipeline 并行数", "6")
+    docling_parallel = ask("Docling 并行数", "2")
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_from_paper_downloads.py"),
+        "--all",
+        "--config",
+        AI_CONFIG_ARG,
+        "--parallel",
+        parallel,
+        "--docling-parallel",
+        docling_parallel,
+        "--resume",
+    ]
+    print()
+    print("这一步会处理 manifest 里的 active 英文论文。")
+    print("中文/非英文/非文章默认跳过；不要加 --include-deferred。")
+    print("可能耗时较久，并会消耗 AI token。")
+    if not confirm("确认正式运行全库扩容？", False):
+        print("已取消。")
+        return 0
+    return run_command(command)
+
+
+def run_full_library_with_recovery() -> int:
+    if not ensure_ai_ready():
+        return 1
+    parallel = ask("pipeline 并行数", "6")
+    docling_parallel = ask("Docling 并行数", "2")
+    recovery_passes = ask("自动恢复轮数", "1")
+    retry_docling = confirm("Docling 失败是否低并发重试一次？默认只标记坏 PDF", False)
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_workflow_with_recovery.py"),
+        "--all",
+        "--config",
+        AI_CONFIG_ARG,
+        "--parallel",
+        parallel,
+        "--docling-parallel",
+        docling_parallel,
+        "--max-recovery-passes",
+        recovery_passes,
+    ]
+    if retry_docling:
+        command.append("--retry-docling-once")
+    print()
+    print("这一步会执行主流程，并把失败项写入 recovery_queue.json。")
+    print("Docling 失败默认只标记并排除；AI/validator 阶段失败会按失败阶段强制重跑一次。")
+    print("它不会手工修改 AI 生成内容，也不会处理 deferred 中文/非文章记录。")
+    if not confirm("确认启动带恢复的全库运行？", False):
+        print("已取消。")
+        return 0
+    return run_command(command)
+
+
+def rebuild_connection_layer() -> int:
+    if not ensure_ai_ready():
+        return 1
+    workers = ask("AI 判关系并行数", "6")
+    source_mode = "on" if confirm("判关系时额外喂 abstract/conclusion？更慢但更稳", False) else "off"
+    force_edges = confirm("是否强制重判关系并忽略 edge cache？", False)
+    steps = [
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "connect" / "build_vocabulary.py"),
+            "--library-dir",
+            "library",
+            "--config",
+            AI_CONFIG_ARG,
+        ],
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "connect" / "build_candidate_edges.py"),
+            "--library-dir",
+            "library",
+        ],
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "connect" / "ai_build_edges.py"),
+            "--config",
+            AI_CONFIG_ARG,
+            "--workers",
+            workers,
+            "--source",
+            source_mode,
+        ],
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "connect" / "build_concept_index.py"),
+            "--library-dir",
+            "library",
+        ],
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "use" / "build_graph_html.py"),
+        ],
+    ]
+    if force_edges:
+        steps[2].append("--force")
+    print()
+    print("将按顺序重建: 词表 -> 候选边 -> AI typed edges -> 概念索引 -> HTML 图谱。")
+    print("注意: 重建后 angles 和旧草稿都应视为可再生旧产物。")
+    for index, command in enumerate(steps, start=1):
+        print(f"  {index}. {command_text(command)}")
+    if not confirm("确认重建连接层？", False):
+        print("已取消。")
+        return 0
+    for command in steps:
+        code = run_command(command)
+        if code != 0:
+            print(f"步骤失败，退出码: {code}")
+            return code
+    return 0
+
+
+def build_graph() -> int:
+    code = run_command([sys.executable, str(ROOT / "scripts" / "use" / "build_graph_html.py")])
+    if code == 0 and GRAPH_HTML.exists() and confirm("是否现在打开图谱？", True):
+        open_file(GRAPH_HTML)
+    return code
+
+
+def propose_angles() -> int:
+    if not ensure_ai_ready():
+        return 1
+    n = ask("希望生成几个候选角度", "6")
+    model = ask("模型名", "deepseek-v4-pro")
+    print()
+    print("这一步只生成候选角度，不证明角度为真。重要角度还要用复核菜单验证。")
+    if not confirm("确认让 AI 提出候选综述角度？", True):
+        print("已取消。")
+        return 0
+    return run_command(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "use" / "propose_angles.py"),
+            "--config",
+            AI_CONFIG_ARG,
+            "--n",
+            n,
+            "--model",
+            model,
+        ]
+    )
+
+
+def query_network() -> int:
+    print()
+    print("1. 按概念查询")
+    print("2. 按论文查询")
+    choice = ask("请选择", "1")
+    if choice == "1":
+        concept = ask("请输入概念，例如 capillary condensation")
+        if not concept:
+            print("概念不能为空。")
+            return 2
+        return run_command([sys.executable, str(ROOT / "scripts" / "use" / "query_network.py"), "--concept", concept])
+    if choice == "2":
+        paper_id = ask("请输入 paper_id", "S18").upper()
+        return run_command([sys.executable, str(ROOT / "scripts" / "use" / "query_network.py"), "--paper", paper_id])
+    print("选择无效。")
+    return 2
+
+
+def verify_angle() -> int:
+    if not ensure_ai_ready():
+        return 1
+    papers = ask("请输入论文 id，用逗号分隔，例如 S121,S43")
+    claim = ask("请输入要复核的关系/论点")
+    if not papers or not claim:
+        print("论文 id 和论点都不能为空。")
+        return 2
+    model = ask("验证模型", "deepseek-v4-pro")
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "use" / "verify_angle.py"),
+        "--papers",
+        papers,
+        "--claim",
+        claim,
+        "--model",
+        model,
+        "--config",
+        AI_CONFIG_ARG,
+    ]
+    print()
+    print("这一步会喂全文给 AI 做对抗式复核，通常比普通调用更慢、更贵。")
+    if not confirm("确认复核这个角度？", True):
+        print("已取消。")
+        return 0
+    return run_command(command)
+
+
+def draft_section() -> int:
+    if not ensure_ai_ready():
+        return 1
+    concept = ask("请输入出稿概念，例如 capillary condensation")
+    if not concept:
+        print("概念不能为空。")
+        return 2
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "use" / "draft_section.py"),
+        "--concept",
+        concept,
+        "--config",
+        AI_CONFIG_ARG,
+    ]
+    if confirm("是否加入风格语料文件/目录？", False):
+        corpus = ask("请输入风格语料路径")
+        if corpus:
+            command.extend(["--style-corpus", corpus])
+    print()
+    print("出稿只使用关联网和原文片段；生成后仍要人工读证据。")
+    if not confirm("确认按这个概念出稿？", True):
+        print("已取消。")
+        return 0
+    return run_command(command)
+
+
 def latest_logs(max_files: int = 8) -> list[Path]:
     reports = ROOT / "reports"
     if not reports.exists():
@@ -454,7 +719,15 @@ def next_step_with_ai() -> bool:
                                 "validate_s05",
                                 "dry_run_paper",
                                 "run_one_stage",
-                                "read_quick_handoff",
+                                "full_library_dry_run",
+                                "run_full_library",
+                                "rebuild_connection_layer",
+                                "build_graph",
+                                "propose_angles",
+                                "query_network",
+                                "verify_angle",
+                                "draft_section",
+                                "read_handoff",
                             ],
                         },
                         ensure_ascii=False,
@@ -477,15 +750,31 @@ def print_menu() -> None:
     print("=" * 60)
     print("Auto Review Assistant")
     print("=" * 60)
-    print("1. 一键检查当前状态")
-    print("2. 配置或重配 AI")
-    print("3. 测试 AI 连接")
-    print("4. 验证 S05 smoke test")
-    print("5. 对某篇论文做 dry-run")
-    print("6. 运行某篇论文的指定阶段")
-    print("7. AI 诊断最近日志")
-    print("8. AI 给下一步建议")
-    print("9. 打开 HANDOFF.md")
+    print("基础:")
+    print("  1. 一键检查当前状态")
+    print("  2. 配置或重配 AI")
+    print("  3. 测试 AI 连接")
+    print("  4. 验证 S05 smoke test")
+    print("  5. 对某篇论文做 dry-run")
+    print("  6. 运行某篇论文的指定阶段")
+    print()
+    print("v2 主线:")
+    print("  10. 全库扩容 dry-run")
+    print("  11. 正式全库扩容")
+    print("  12. 带恢复的智能全库运行")
+    print("  13. 重建连接层")
+    print("  14. 生成/打开图谱")
+    print("  15. AI 提出候选综述角度")
+    print("  16. 查询关联网")
+    print("  17. 复核某个角度")
+    print("  18. 按概念接地出稿")
+    print()
+    print("辅助:")
+    print("  20. AI 诊断最近日志")
+    print("  21. AI 给下一步建议")
+    print("  22. 打开 HANDOFF.md")
+    print("  23. 打开 CONNECTION_PLAN.md")
+    print("  24. 打开 ISSUES.md")
     print("0. 退出")
 
 
@@ -537,14 +826,47 @@ def main() -> int:
         elif choice == "6":
             run_stage()
             pause()
-        elif choice == "7":
+        elif choice == "10":
+            full_library_dry_run()
+            pause()
+        elif choice == "11":
+            run_full_library()
+            pause()
+        elif choice == "12":
+            run_full_library_with_recovery()
+            pause()
+        elif choice == "13":
+            rebuild_connection_layer()
+            pause()
+        elif choice == "14":
+            build_graph()
+            pause()
+        elif choice == "15":
+            propose_angles()
+            pause()
+        elif choice == "16":
+            query_network()
+            pause()
+        elif choice == "17":
+            verify_angle()
+            pause()
+        elif choice == "18":
+            draft_section()
+            pause()
+        elif choice == "20":
             diagnose_with_ai()
             pause()
-        elif choice == "8":
+        elif choice == "21":
             next_step_with_ai()
             pause()
-        elif choice == "9":
+        elif choice == "22":
             open_file(HANDOFF)
+            pause()
+        elif choice == "23":
+            open_file(CONNECTION_PLAN)
+            pause()
+        elif choice == "24":
+            open_file(ISSUES)
             pause()
         else:
             print("选择无效。")

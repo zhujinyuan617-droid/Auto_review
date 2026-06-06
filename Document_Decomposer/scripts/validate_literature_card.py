@@ -10,7 +10,25 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from docdecomp.literature_card import ensure_card_defaults, load_json, validate_card, write_validation_report
+from docdecomp.io_utils import atomic_write_csv_dicts
+from docdecomp.literature_card import ensure_card_defaults, load_json, validate_card
+from docdecomp.slim_card import SLIM_SCHEMA_VERSION, ensure_slim_defaults, validate_slim_card
+
+
+FIELDNAMES = [
+    "paper_id",
+    "schema_version",
+    "status",
+    "evidence_count",
+    "unknown_reading_block_count",
+    "bad_source_ref_count",
+    "missing_evidence_count",
+    "page_mismatch_count",
+    "empty_required_text_count",
+    "tag_count",
+    "finding_count",
+    "warnings",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,23 +54,44 @@ def main() -> int:
         card = load_json(paper_dir / args.card_name)
         reading = load_json(paper_dir / "reading_blocks.json")
         metadata = load_json(paper_dir / "metadata_candidates.json")
-        card = ensure_card_defaults(card, reading, metadata)
-        row = validate_card(card, reading)
+        if card.get("schema_version") == SLIM_SCHEMA_VERSION:
+            card = ensure_slim_defaults(card, reading, metadata)
+            validation = validate_slim_card(card)
+            row = {
+                "paper_id": card.get("paper_id") or reading.get("paper_id"),
+                "schema_version": SLIM_SCHEMA_VERSION,
+                "status": "ok" if validation["status"] == "ok" else "fail",
+                "evidence_count": 0,
+                "unknown_reading_block_count": 0,
+                "bad_source_ref_count": 0,
+                "missing_evidence_count": 0,
+                "page_mismatch_count": 0,
+                "empty_required_text_count": 0,
+                "tag_count": validation["n_tags"],
+                "finding_count": validation["n_findings"],
+                "warnings": "; ".join(validation["warnings"]),
+            }
+        else:
+            card = ensure_card_defaults(card, reading, metadata)
+            row = validate_card(card, reading)
+            row["schema_version"] = card.get("schema_version", "")
+            row["tag_count"] = ""
+            row["finding_count"] = ""
         rows.append(row)
 
     report_path = Path(args.report)
-    write_validation_report(report_path, rows)
+    atomic_write_csv_dicts(report_path, FIELDNAMES, rows)
     print(f"Wrote {report_path}")
     for row in rows:
         print(
-            f"{row['paper_id']}: {row['status']}; evidence={row['evidence_count']}; "
+            f"{row['paper_id']}: {row['status']}; schema={row['schema_version']}; evidence={row['evidence_count']}; "
             f"unknown_rb={row['unknown_reading_block_count']}; bad_source={row['bad_source_ref_count']}; "
             f"missing_evidence={row['missing_evidence_count']}; page_mismatch={row['page_mismatch_count']}; "
-            f"empty_text={row['empty_required_text_count']}"
+            f"empty_text={row['empty_required_text_count']}; tags={row['tag_count']}; findings={row['finding_count']}"
         )
         if row["warnings"]:
             print(f"  warnings: {row['warnings']}")
-    return 0
+    return 0 if all(row["status"] == "ok" for row in rows) else 1
 
 
 if __name__ == "__main__":

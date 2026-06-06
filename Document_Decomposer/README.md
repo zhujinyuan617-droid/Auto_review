@@ -45,9 +45,16 @@ Useful entry points:
 
 - `scripts/ingest_paper_downloads.py`: scan `paper_pool/paper`, dedupe by SHA-256, flag possible duplicates by DOI-like filename keys/tokens, assign stable `Sxx` ids, classify the paper profile, and stage PDFs.
 - `scripts/run_from_paper_downloads.py`: check/run Docling for missing outputs, then call `scripts/run_pipeline.py`; default batch selection skips deferred non-English/non-article records.
+- `scripts/run_workflow_with_recovery.py`: recommended full-library runner; it records failures, reruns AI/validator stage failures, marks known bad PDFs from `config/docling_unresolved.json`, and writes `final_report.json` / `final_report.md`.
 - `scripts/run_pipeline.py`: run the post-Docling document decomposition pipeline.
-- `start_assistant.bat`: double-click interactive assistant for local checks, AI setup, S05 validation, dry-runs, staged runs, and AI log diagnosis.
+- `start_assistant.bat`: double-click interactive assistant for local checks, AI setup, S05 validation, dry-runs, staged runs, recovery full-library runs, and AI log diagnosis.
 - `scripts/interactive_assistant.py --status`: non-interactive assistant status check for automation.
+
+Current batch status:
+
+- The latest recovery full-library report completed with 255 core papers validated, 3 language/content-deferred papers, and 6 Docling-unresolved PDFs.
+- Bad PDFs are marked and excluded by default; do not spend engineering time rescuing every failed PDF unless a user explicitly asks.
+- The tracked bad-PDF list is `config/docling_unresolved.json`.
 
 AI configuration:
 

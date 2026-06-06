@@ -5,7 +5,9 @@
 
 ## 抽取链(留在 `scripts/` 外层 —— 被 `run_pipeline.py` 按路径调用,勿移)
 - `ingest_paper_downloads.py` — 扫 PDF、去重、分配 Sxx、分类、暂存。
-- `run_from_paper_downloads.py` — 跑 Docling(缺则补)再调 `run_pipeline.py`。
+- `run_from_paper_downloads.py` — 跑 Docling(缺则补)再调 `run_pipeline.py`。**全量入库**:`--all`
+  处理 manifest 里所有 active 篇,**中文/非文章(deferred)默认自动跳过**(勿加 `--include-deferred`);断点续跑加 `--resume`。
+- `run_workflow_with_recovery.py` — 上层安全调度器:主流程 → 失败队列 → AI/validator 阶段重跑 → 最终验证报告;坏 PDF 默认只标记(`../config/docling_unresolved.json`)。
 - `run_pipeline.py` — 编排:clean → sections → reading → card → evidence_atoms → paper_syntheses。
 - `ai_organize_sections.py` / `ai_build_reading_blocks.py` — AI 分章节 / 规划阅读块。
 - `ai_build_literature_card.py` — **建瘦卡片**(metadata+标签+粗摘要;聚焦读;逻辑在 `src/docdecomp/slim_card.py`)。
