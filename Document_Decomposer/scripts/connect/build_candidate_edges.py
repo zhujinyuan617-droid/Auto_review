@@ -22,7 +22,11 @@ import math
 from collections import Counter, defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
+import sys
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+from docdecomp.connect import load_deferred
 
 FACET_KEYS = {"topic": "domain_tags", "method": "methods", "object": "research_objects"}
 # object/method overlap signals a real relationship more than a broad topic does
@@ -32,7 +36,10 @@ FACET_WEIGHT = {"topic": 0.6, "method": 0.8, "object": 1.0}
 def load_paper_concepts(library_dir: Path, r2c: dict):
     """paper_id -> {facet: set(canonical concept)}"""
     out: dict[str, dict[str, set]] = {}
+    deferred = load_deferred()
     for path in sorted(library_dir.glob("S*/literature_card.json")):
+        if path.parent.name in deferred:
+            continue
         card = json.loads(path.read_text(encoding="utf-8"))
         cl = card.get("classification", {}) or {}
         facets = {}

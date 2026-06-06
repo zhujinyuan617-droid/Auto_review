@@ -21,7 +21,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -31,23 +31,22 @@ from docdecomp.ai_client import OpenAICompatibleClient, load_ai_config
 CONN = ROOT / "reports" / "connection"
 
 
-def card_findings(pid):
-    c = json.loads((ROOT / "library" / pid / "literature_card.json").read_text(encoding="utf-8"))
-    kfs = []
-    for kf in (c.get("key_findings") or [])[:5]:
-        x = kf.get("claim") or kf.get("finding") or kf.get("detail") or ""
-        if x:
-            kfs.append(x)
-    return (c.get("paper", {}) or {}).get("title", ""), kfs
+def paper_title(pid):
+    try:
+        c = json.loads((ROOT / "library" / pid / "literature_card.json").read_text(encoding="utf-8"))
+        return (c.get("paper", {}) or {}).get("title", "")
+    except (OSError, json.JSONDecodeError):
+        return ""
 
 
 def build_packet(concept, edges, cidx):
     d = cidx[concept]
     members = set(d["central"]) | {p["paper"] for p in d["passing"]}
-    central = []
-    for p in d["central"]:
-        title, kfs = card_findings(p)
-        central.append({"id": p, "title": title, "findings": kfs})
+    # facts come from BLOCK snippets (concept_index), not from the card -- works with slim cards.
+    central_q = defaultdict(list)
+    for ev in d.get("central_evidence", []):
+        central_q[ev["paper"]].append(ev["snippet"])
+    central = [{"id": p, "title": paper_title(p), "quotes": central_q.get(p, [])} for p in d["central"]]
     passing = [{"id": p["paper"], "section": p["section"], "quote": p["snippet"]} for p in d["passing"]]
     rels = defaultdict(list)
     for e in edges:
@@ -57,16 +56,20 @@ def build_packet(concept, edges, cidx):
 
 
 SYSTEM = (
-    "You are drafting one subsection of a literature review, grounded ONLY in the "
-    "provided material. Rules:\n"
-    "1. Use ONLY the supplied papers, findings, quotes and relations. Invent nothing; "
-    "add no numbers that are not in the material.\n"
-    "2. Cite every claim with the paper id in brackets, e.g. [S18]. Multiple: [S18; S33].\n"
-    "3. Make the structure of the evidence explicit: where papers agree (supports), where "
-    "they conflict (contradicts), and where they cover complementary pieces (complements).\n"
-    "4. When a point rests only on a passing mention, say so (e.g. 'noted in passing by [Sxx]').\n"
-    "5. Plain, neutral academic prose. No invented citations, no fluff. This is a faithful "
-    "scaffold, not the final styled text."
+    "You are drafting one subsection of a literature review, grounded ONLY in the provided "
+    "material. Rules:\n"
+    "1. FACTS COME FROM QUOTES. Each central paper gives verbatim `quotes`; each passing paper "
+    "gives a verbatim `quote`. These quotes are the ONLY thing you may treat as fact. Every "
+    "number / quantitative statement you write MUST appear verbatim in one of these quotes.\n"
+    "2. Do not write a claim more specific than its quote supports (no added thresholds, units, "
+    "'linearly', 'accurately', or scope the quote does not state). If a quote is too truncated to "
+    "support a point, omit the point.\n"
+    "3. Cite every statement with the paper id, e.g. [S18]. Multiple: [S18; S33].\n"
+    "4. Make the evidence structure explicit: where papers agree (supports), conflict "
+    "(contradicts), or cover complementary pieces (complements).\n"
+    "5. When a point rests only on a passing mention, say so (e.g. 'noted in passing by [Sxx]').\n"
+    "6. Plain, neutral academic prose. No invented citations, no fluff. Faithful scaffold, not "
+    "final styled text."
 )
 
 # Pass 2: re-style the faithful draft into the target author's voice WITHOUT touching facts.
@@ -145,6 +148,17 @@ def main() -> int:
     except json.JSONDecodeError:
         draft = text
 
+    # numeric fidelity gate: every number in the draft should appear in a fed quote.
+    import re
+    fed_quotes = " ".join([q for c in packet["central"] for q in c["quotes"]]
+                          + [p["quote"] for p in packet["passing"]])
+    # strip [Sxx] citation ids first, else their digits look like fact-numbers
+    strip_cites = lambda s: re.sub(r"S\d+", "", s)
+    nums = lambda s: set(re.findall(r"\d+(?:\.\d+)?", strip_cites(s)))
+    leaked = sorted(nums(draft) - nums(fed_quotes), key=lambda x: (len(x), x))
+    num_gate = ("numeric gate: all draft numbers trace to a quote ✓" if not leaked
+                else f"numeric gate: {len(leaked)} number(s) NOT found in any quote -> {leaked}")
+
     # optional pass 2: re-style into target author voice, facts/citations frozen
     style_text, style_label = load_style(args)
     styled = None
@@ -165,7 +179,7 @@ def main() -> int:
     cites_passing = ", ".join(p["id"] for p in packet["passing"])
     body = [
         f"# 综述初稿(接地):{args.concept}\n",
-        f"> 素材来源 — 中心研究: {cites_central}\n>\n> 一笔带过: {cites_passing}\n",
+        f"> 素材来源 — 中心研究: {cites_central}\n>\n> 一笔带过: {cites_passing}\n>\n> {num_gate}\n",
         "\n---\n\n## 忠实初稿(中性文风)\n\n" + draft + "\n",
     ]
     if styled:
@@ -174,6 +188,7 @@ def main() -> int:
 
     print(f"central={len(packet['central'])} passing={len(packet['passing'])} "
           f"relations={ {k: len(v) for k, v in packet['relations'].items()} }")
+    print(f"  {num_gate}")
     if styled:
         print(f"style pass: {style_label}\n  {fidelity}")
     print(f"Wrote {out}")

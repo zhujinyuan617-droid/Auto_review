@@ -25,7 +25,11 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
+import sys
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+from docdecomp.connect import load_deferred
 CONN = ROOT / "reports" / "connection"
 FACET_KEYS = {"topic": "domain_tags", "method": "methods", "object": "research_objects"}
 
@@ -68,7 +72,10 @@ def load_vocab(vocab_path: Path):
 def card_concepts(library_dir: Path, r2c: dict):
     """paper -> set(canonical) the author foregrounded (came from the card tags)."""
     out = defaultdict(set)
+    deferred = load_deferred()
     for path in library_dir.glob("S*/literature_card.json"):
+        if path.parent.name in deferred:
+            continue
         c = json.loads(path.read_text(encoding="utf-8"))
         cl = c.get("classification", {}) or {}
         for facet, key in FACET_KEYS.items():
@@ -115,8 +122,11 @@ def main() -> int:
     # concept -> paper -> list of mentions(block,section,snippet)
     mentions = defaultdict(lambda: defaultdict(list))
     n_papers = 0
+    deferred_main = load_deferred()
     for path in sorted(Path(args.library_dir).glob("S*/reading_blocks.json")):
         pid = path.parent.name
+        if pid in deferred_main:
+            continue
         n_papers += 1
         blocks = json.loads(path.read_text(encoding="utf-8")).get("reading_blocks", [])
         for b in blocks:
@@ -158,12 +168,21 @@ def main() -> int:
             passing.append({"paper": p, "n_hits": len(papers[p]), **first})
         if not central_papers and not passing:
             continue
+        # verbatim block snippets for central papers too, so drafting can pull facts from
+        # the source (slim cards no longer carry quotes). Empty if the term isn't lexically
+        # in that paper's body (tag present but wording differs).
+        central_evidence = []
+        for p in central_papers:
+            if papers.get(p):
+                first = papers[p][0]
+                central_evidence.append({"paper": p, "n_hits": len(papers[p]), **first})
         concepts_out[can] = {
             "facets": sorted(facets[can]),
             "members": sorted(members[can]),
             "specific": is_specific(can),
             "central": central_papers,
             "n_central": len(central_papers),
+            "central_evidence": central_evidence,
             "passing": passing,
             "n_passing": len(passing),
             # invoked widely in passing but studied centrally by few = candidate gap

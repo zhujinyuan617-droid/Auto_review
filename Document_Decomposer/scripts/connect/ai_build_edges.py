@@ -28,7 +28,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -36,7 +36,7 @@ if str(SRC) not in sys.path:
 from docdecomp.ai_client import OpenAICompatibleClient, load_ai_config
 
 CONN = ROOT / "reports" / "connection"
-PROMPT_VERSION = "edges-v2"
+PROMPT_VERSION = "edges-v4"  # v4: judge from slim card summary (distil-once); source optional
 
 VALID = {"supports", "contradicts", "complements", "shared_context"}
 DIRECTIONAL = {"complements"}  # optional builds-on direction
@@ -54,6 +54,8 @@ SYSTEM = (
     "the other, STILL use complements and give the BASE paper id (the one being built upon).\n"
     "- shared_context: only a coincidental or single generic overlap, or genuinely different problems.\n\n"
     "HARD RULES:\n"
+    "0. Judge from each paper's `summary` (direction-level findings distilled from the paper). "
+    "If `abstract`/`conclusion` are also provided, use them to resolve doubt.\n"
     "1. Your rationale MUST reference the concrete concept(s) the two papers share.\n"
     "2. Do NOT treat 'both about the same topic' as supports. Agreement must be about a "
     "specific finding or mechanism, not mere topical overlap.\n"
@@ -73,38 +75,66 @@ SCHEMA_HINT = (
 )
 
 
-def load_card_summary(pid: str) -> dict:
-    path = ROOT / "library" / pid / "literature_card.json"
-    c = json.loads(path.read_text(encoding="utf-8"))
-    paper = c.get("paper", {}) or {}
-    kfs = []
-    for kf in (c.get("key_findings") or [])[:5]:
-        t = kf.get("claim") or kf.get("finding") or kf.get("detail") or ""
-        if t:
-            kfs.append(t)
-    mechs = []
-    for m in (c.get("mechanisms") or [])[:4]:
-        t = m.get("claim") or m.get("detail") or m.get("mechanism") or ""
-        if t:
-            mechs.append(t)
+# architecture v2 / option (甲): relation typing reads the slim card's coarse SUMMARY
+# (distilled once from focused reading, then trusted -- "distil once, reuse"). The paper's
+# abstract+conclusion are fed ONLY when --source on (e.g. to spot-check edge quality).
+INCLUDE_SOURCE = False  # set from CLI (--source on)
+ABSTRACT_KINDS = {"abstract"}
+CONCLUSION_KINDS = {"conclusion"}
+FALLBACK_KINDS = {"discussion", "results_discussion"}  # used only if abstract+conclusion empty
+
+
+def _blocks_text(blocks, kinds, max_chars):
+    parts = [b.get("text", "") or "" for b in blocks if b.get("section_kind") in kinds]
+    return " ".join(parts).strip()[:max_chars]
+
+
+def load_paper_context(pid: str) -> dict:
+    lib = ROOT / "library" / pid
+    try:
+        blocks = json.loads((lib / "reading_blocks.json").read_text(encoding="utf-8")).get("reading_blocks", [])
+    except (OSError, json.JSONDecodeError):
+        blocks = []
+    try:
+        card = json.loads((lib / "literature_card.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        card = {}
+
+    abstract = _blocks_text(blocks, ABSTRACT_KINDS, 1200)
+    conclusion = _blocks_text(blocks, CONCLUSION_KINDS, 1200)
+    if not (abstract or conclusion):  # papers Docling didn't label -> fall back to discussion
+        abstract = _blocks_text(blocks, FALLBACK_KINDS, 1500)
+
+    # coarse summary: slim card (v2) has card["summary"]; thick card -> derive from key_findings
+    summ = card.get("summary")
+    if isinstance(summ, dict):
+        obj = summ.get("objective", "")
+        parts = ([obj] if obj else []) + list(summ.get("main_findings") or [])
+        summary_text = " | ".join(parts)
+    else:
+        cq = (card.get("core_question") or {}).get("claim", "")
+        kfs = [kf.get("claim", "") for kf in (card.get("key_findings") or [])[:5] if kf.get("claim")]
+        summary_text = " | ".join(([cq] if cq else []) + kfs)
+
     return {
         "id": pid,
-        "title": paper.get("title", ""),
-        "core_question": (c.get("core_question") or {}).get("claim", ""),
-        "key_findings": kfs,
-        "mechanisms": mechs,
+        "title": (card.get("paper", {}) or {}).get("title", ""),
+        "abstract": abstract,
+        "conclusion": conclusion,
+        "summary": summary_text,
     }
 
 
 def build_messages(focal: dict, neighbours: list[dict]) -> list[dict]:
     def fmt(card):
         parts = [f"id: {card['id']}", f"title: {card['title']}"]
-        if card["core_question"]:
-            parts.append(f"core_question: {card['core_question']}")
-        if card["key_findings"]:
-            parts.append("key_findings: " + " | ".join(card["key_findings"]))
-        if card["mechanisms"]:
-            parts.append("mechanisms: " + " | ".join(card["mechanisms"]))
+        if card.get("summary"):
+            parts.append(f"summary (direction-level findings): {card['summary']}")
+        if INCLUDE_SOURCE:
+            if card.get("abstract"):
+                parts.append(f"abstract: {card['abstract']}")
+            if card.get("conclusion"):
+                parts.append(f"conclusion: {card['conclusion']}")
         return "\n".join(parts)
 
     blocks = []
@@ -127,6 +157,7 @@ def build_messages(focal: dict, neighbours: list[dict]) -> list[dict]:
 def cache_key(focal_id, neighbours, model):
     h = hashlib.sha256()
     h.update(PROMPT_VERSION.encode())
+    h.update(str(INCLUDE_SOURCE).encode())
     h.update(model.encode())
     h.update(focal_id.encode())
     for nb in sorted(neighbours, key=lambda x: x["card"]["id"]):
@@ -140,7 +171,7 @@ def judge_focal(client, focal_id, neighbours, model, cache_dir, force):
     cpath = cache_dir / f"{focal_id}_{ck}.json"
     if cpath.exists() and not force:
         return json.loads(cpath.read_text(encoding="utf-8")), True
-    focal = load_card_summary(focal_id)
+    focal = load_paper_context(focal_id)
     resp = client.chat_json(build_messages(focal, neighbours), SCHEMA_HINT)
     result = resp.get("edges", []) if isinstance(resp, dict) else []
     cpath.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -153,8 +184,13 @@ def main() -> int:
     ap.add_argument("--out", default=str(CONN / "edges.json"))
     ap.add_argument("--config", default=None)
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--source", choices=["off", "on"], default="off",
+                    help="Also feed abstract+conclusion to relation judging (default off: summary only).")
     ap.add_argument("--force", action="store_true", help="Ignore cache and re-call the model.")
     args = ap.parse_args()
+
+    global INCLUDE_SOURCE
+    INCLUDE_SOURCE = (args.source == "on")
 
     cand = json.loads(Path(args.candidates).read_text(encoding="utf-8"))
     # group edges by focal = min(a,b)
@@ -162,7 +198,7 @@ def main() -> int:
     edge_meta = {}
     for e in cand["edges"]:
         a, b = sorted((e["a"], e["b"]))
-        groups[a].append({"card": load_card_summary(b), "shared": e["shared"], "score": e["candidate_score"]})
+        groups[a].append({"card": load_paper_context(b), "shared": e["shared"], "score": e["candidate_score"]})
         edge_meta[(a, b)] = {"shared": e["shared"], "candidate_score": e["candidate_score"]}
 
     config = load_ai_config(ROOT, Path(args.config) if args.config else None)

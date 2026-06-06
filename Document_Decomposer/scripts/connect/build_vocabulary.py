@@ -30,12 +30,13 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from docdecomp.ai_client import OpenAICompatibleClient, load_ai_config
+from docdecomp.connect import load_deferred
 
 # facet name -> classification key in the literature card
 FACET_KEYS = {
@@ -45,21 +46,30 @@ FACET_KEYS = {
 }
 
 SYSTEM = (
-    "You normalize a messy list of free-text research tags into a small "
-    "controlled vocabulary. You ONLY group different surface forms of the SAME "
-    "concept under one canonical name. You never invent concepts that are not "
-    "present, and you never merge concepts that are genuinely different "
-    "(e.g. 'adsorption' and 'diffusion' stay separate; 'shale gas' and "
-    "'shale gas recovery' may merge). Prefer the most common, concise, "
-    "widely-recognized surface form as the canonical name. Every input tag "
-    "must appear in exactly one group."
+    "You normalize a messy list of free-text research tags into a controlled vocabulary by "
+    "grouping ONLY different surface forms of the SAME concept.\n"
+    "MERGE ONLY: spelling/plural/abbreviation variants and exact synonyms — e.g. "
+    "'gcmc'='grand canonical monte carlo', 'co2'='carbon dioxide', "
+    "'shale gas recovery' under 'shale gas'.\n"
+    "DO NOT MERGE two DIFFERENT phenomena, mechanisms, methods, or materials, even if they are "
+    "related or in the same field. Keep separate, for example: 'capillary condensation' vs "
+    "'phase behavior'; 'diffusion' vs 'fluid dynamics' vs 'transport'; 'knudsen diffusion' vs "
+    "'diffusion'; 'clay minerals' vs 'kerogen'.\n"
+    "NEVER create broad umbrella / grab-bag concepts (e.g. 'fluid dynamics', 'materials', "
+    "'environmental', 'energy') that swallow several distinct topics.\n"
+    "When unsure whether two tags are the same concept, KEEP THEM SEPARATE. Prefer MANY "
+    "fine-grained concepts over few broad ones. A group should rarely exceed ~8 members unless "
+    "they are clearly the same term spelled differently.\n"
+    "Prefer the most common, concise, widely-recognized surface form as the canonical name. "
+    "Every input tag must appear in exactly one group."
 )
 
 
 def collect_tags(library_dir: Path):
     """Return {facet: Counter(raw_tag -> card_count)} and per-facet card sets."""
     counts = {f: Counter() for f in FACET_KEYS}
-    cards = sorted(library_dir.glob("S*/literature_card.json"))
+    deferred = load_deferred()
+    cards = [c for c in sorted(library_dir.glob("S*/literature_card.json")) if c.parent.name not in deferred]
     for path in cards:
         try:
             card = json.loads(path.read_text(encoding="utf-8"))

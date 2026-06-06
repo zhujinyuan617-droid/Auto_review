@@ -22,6 +22,7 @@ Auto_review:把论文 PDF 变成可溯源、可重组的综述写作素材底座
 | `Document_Decomposer/CONNECTION_PLAN.md` | 连接层路线 + 建设状态 ← **当前工作的唯一状态源** |
 | `Document_Decomposer/ISSUES.md` | 已知问题的**唯一台账** |
 | `Document_Decomposer/AI_GUIDE.md` | 单篇抽取管线的详细操作规则 |
+| `Document_Decomposer/scripts/README.md` | 每个脚本的一行职责 + 目录分组(connect/use/audit) |
 | `Document_Decomposer/README.md` | Document_Decomposer 人类向导览 |
 | `Document_Decomposer/DOCLING_INSTALL.md` | Docling 环境搭建 |
 | `README.md`(根) | 仓库总导览(人类向) |
@@ -62,3 +63,12 @@ Auto_review:把论文 PDF 变成可溯源、可重组的综述写作素材底座
 ### 单一事实源 + 同步
 现实变了 → **只改对应的那一个权威文档** → 若是耐久事实,再加一行记忆指针。
 **绝不在多处抄同一句话。**
+
+## 对用户讲话的风格(像老师:专业但好懂)
+1. **先说大白话结论,再展开细节。**
+2. **每个专业词,第一次出现就用一句话解释;能不用英文缩写就不用。**
+3. **每个抽象的点,都配一个具体例子或打比方。**
+4. **句子短,一句话只说一个意思。**
+5. **一条消息只推进一件事;最多在结尾问一个问题。**
+6. **结尾用一两句话复述重点,并明确「现在只需要你回答什么」。**
+7. **少用密集表格;非用不可时,先一句话说明这张表是干嘛的。**
