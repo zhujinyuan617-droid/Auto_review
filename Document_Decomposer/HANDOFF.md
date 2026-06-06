@@ -7,12 +7,12 @@
 使用的结构化资料。单篇抽取链:
 
 ```text
-PDF → Docling JSON/Markdown → clean package → ai_sections.json
-   → reading_blocks.json/reading.md → literature_card.json
-   → evidence_atoms.json → paper_syntheses.json
+PDF → Docling → clean package → ai_sections.json → reading_blocks.json
+   → literature_card.json(架构 v2:瘦卡片 = metadata+标签+粗摘要)
+   → [evidence_atoms / paper_syntheses 为 v1 遗留,瘦卡片路线下非必需]
 ```
 
-之上再叠跨篇连接层(词表→关联网→概念索引→灵感→出稿),详见 `CONNECTION_PLAN.md`。
+之上的跨篇连接层(词表→关联网→概念索引→灵感→接地出稿)**已建成(架构 v2)**,详见 `CONNECTION_PLAN.md`。
 当前重点是英文论文;中文/非英文/非论文默认延后。
 
 ## 技术路线(高层;细节与状态见 CONNECTION_PLAN.md)

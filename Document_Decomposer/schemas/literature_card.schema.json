@@ -1,307 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LiteratureCard",
+  "title": "LiteratureCard (slim, architecture v2)",
+  "$comment": "v2 slim card: metadata + coarse tags + a fixed-format coarse summary (non-fact, for linking only). No quotes/evidence/claims-with-numbers -- facts live in reading blocks. Built by src/docdecomp/slim_card.py. The v1 thick schema (key_findings/study_design/evidence_atoms/etc.) is deprecated; see CONNECTION_PLAN.md.",
   "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schema_version",
-    "paper_id",
-    "paper",
-    "classification",
-    "fuzzy_keywords",
-    "core_question",
-    "study_design",
-    "variables",
-    "mechanisms",
-    "key_findings",
-    "quantitative_results",
-    "limitations",
-    "review_section_hints",
-    "ai_warnings"
-  ],
-  "$defs": {
-    "evidence": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "reading_block_id",
-        "source_block_ids",
-        "page_start",
-        "page_end",
-        "quote",
-        "note"
-      ],
-      "properties": {
-        "reading_block_id": {
-          "type": "string",
-          "pattern": "^S\\d+-RB-\\d{4}$"
-        },
-        "source_block_ids": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "pattern": "^S\\d+-BLK-\\d{4}$"
-          }
-        },
-        "page_start": {
-          "type": ["integer", "null"],
-          "minimum": 1
-        },
-        "page_end": {
-          "type": ["integer", "null"],
-          "minimum": 1
-        },
-        "quote": {
-          "type": "string"
-        },
-        "note": {
-          "type": "string"
-        }
-      }
-    },
-    "evidence_array": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "$ref": "#/$defs/evidence"
-      }
-    },
-    "string_array": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    }
-  },
+  "additionalProperties": true,
+  "required": ["schema_version", "paper_id", "paper", "classification", "summary"],
   "properties": {
-    "schema_version": {
-      "type": "string",
-      "const": "0.1.0"
-    },
-    "paper_id": {
-      "type": "string",
-      "pattern": "^S\\d+$"
-    },
+    "schema_version": {"type": "string", "const": "0.2.0"},
+    "paper_id": {"type": "string"},
     "paper": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["title", "doi", "year", "journal", "paper_type"],
       "properties": {
-        "title": {
-          "type": "string"
-        },
-        "doi": {
-          "type": "string"
-        },
-        "year": {
-          "type": "string"
-        },
-        "journal": {
-          "type": "string"
-        },
-        "paper_type": {
-          "type": "string",
-          "enum": ["experimental", "simulation", "review", "hybrid", "other", "unknown"]
-        }
+        "title": {"type": "string"},
+        "doi": {"type": "string"},
+        "year": {"type": "string"},
+        "journal": {"type": "string"},
+        "paper_type": {"type": "string",
+          "enum": ["experimental", "simulation", "review", "hybrid", "other", "unknown"]}
       }
     },
     "classification": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["research_objects", "gas_systems", "methods", "scale", "domain_tags"],
+      "description": "Coarse normalized tags. research_objects/methods/domain_tags should not all be empty.",
       "properties": {
-        "research_objects": {
-          "$ref": "#/$defs/string_array"
-        },
-        "gas_systems": {
-          "$ref": "#/$defs/string_array"
-        },
-        "methods": {
-          "$ref": "#/$defs/string_array"
-        },
-        "scale": {
-          "$ref": "#/$defs/string_array"
-        },
-        "domain_tags": {
-          "$ref": "#/$defs/string_array"
-        }
+        "research_objects": {"type": "array", "items": {"type": "string"}},
+        "methods": {"type": "array", "items": {"type": "string"}},
+        "domain_tags": {"type": "array", "items": {"type": "string"}},
+        "gas_systems": {"type": "array", "items": {"type": "string"}},
+        "scale": {"type": "array", "items": {"type": "string"}}
       }
     },
-    "fuzzy_keywords": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["keyword", "reason", "evidence"],
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "evidence": {
-            "$ref": "#/$defs/evidence_array"
-          }
-        }
-      }
-    },
-    "core_question": {
+    "summary": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["claim", "evidence"],
+      "description": "Direction-level coarse summary for cross-paper linking only. NOT a fact source; no precise numbers.",
+      "required": ["objective", "main_findings", "methods_systems"],
       "properties": {
-        "claim": {
-          "type": "string"
-        },
-        "evidence": {
-          "$ref": "#/$defs/evidence_array"
-        }
+        "objective": {"type": "string"},
+        "main_findings": {"type": "array", "items": {"type": "string"},
+          "description": "2-6 direction-level statements (what raises/lowers/affects what); no precise numbers."},
+        "methods_systems": {"type": "string"}
       }
     },
-    "study_design": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["aspect", "detail", "evidence"],
-        "properties": {
-          "aspect": {
-            "type": "string"
-          },
-          "detail": {
-            "type": "string"
-          },
-          "evidence": {
-            "$ref": "#/$defs/evidence_array"
-          }
-        }
-      }
-    },
-    "variables": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["name", "role", "values_or_range", "evidence"],
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string",
-            "enum": ["independent", "dependent", "control", "condition", "parameter", "other", "unknown"]
-          },
-          "values_or_range": {
-            "type": "string"
-          },
-          "evidence": {
-            "$ref": "#/$defs/evidence_array"
-          }
-        }
-      }
-    },
-    "mechanisms": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["mechanism", "explanation", "evidence"],
-        "properties": {
-          "mechanism": {
-            "type": "string"
-          },
-          "explanation": {
-            "type": "string"
-          },
-          "evidence": {
-            "$ref": "#/$defs/evidence_array"
-          }
-        }
-      }
-    },
-    "key_findings": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["claim", "evidence"],
-        "properties": {
-          "claim": {
-            "type": "string"
-          },
-          "evidence": {
-            "$ref": "#/$defs/evidence_array"
-          }
-        }
-      }
-    },
-    "quantitative_results": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["metric", "value", "condition", "interpretation", "evidence"],
-        "properties": {
-          "metric": {
-            "type": "string"
-          },
-          "value": {
-            "type": "string"
-          },
-          "condition": {
-            "type": "string"
-          },
-          "interpretation": {
-            "type": "string"
-          },
-          "evidence": {
-            "$ref": "#/$defs/evidence_array"
-          }
-        }
-      }
-    },
-    "limitations": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["limitation", "evidence"],
-        "properties": {
-          "limitation": {
-            "type": "string"
-          },
-          "evidence": {
-            "$ref": "#/$defs/evidence_array"
-          }
-        }
-      }
-    },
-    "review_section_hints": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["section", "reason", "evidence"],
-        "properties": {
-          "section": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "evidence": {
-            "$ref": "#/$defs/evidence_array"
-          }
-        }
-      }
-    },
-    "ai_warnings": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    }
+    "ai_warnings": {"type": "array", "items": {"type": "string"}}
   }
 }

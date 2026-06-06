@@ -11,12 +11,10 @@ PDF
 -> clean paper package
 -> ai_sections.json
 -> reading_blocks.json / reading.md
--> literature_card.json
--> evidence_atoms.json
--> paper_syntheses.json
-(the single-paper extraction chain above is built; cross-paper linking,
- idea generation, and grounded drafting are planned — see HANDOFF.md
- "目标与技术路线")
+-> literature_card.json   (架构 v2: 瘦卡片 = metadata+标签+粗摘要; 见 CONNECTION_PLAN.md)
+-> evidence_atoms.json / paper_syntheses.json   (v1 遗留, 瘦卡片路线下非必需)
+(单篇抽取链 + 跨篇连接层/灵感/接地出稿均已建成, 架构 v2;
+ 详见 CONNECTION_PLAN.md 与 scripts/README.md)
 ```
 
 For AI agents and detailed operating rules, read [AI_GUIDE.md](AI_GUIDE.md) first. For the current project snapshot, the planned technical route, and open problems, read [HANDOFF.md](HANDOFF.md).

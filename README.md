@@ -106,10 +106,13 @@ Document_Decomposer\start_assistant.bat
 
 ## Current Next Milestones
 
-1. Keep the English-paper workflow stable across more real papers.
-2. Reduce hand-written metadata rules and make completeness checks stricter.
-3. Build the cross-paper **link network** over the literature cards (unified
-   vocabulary + theme/agreement/contradiction/gap links), then an idea-generation
-   layer and grounded drafting on top. This replaces the earlier "summary
-   pyramid / matrix export" idea — see `Document_Decomposer/HANDOFF.md`
-   ("目标与技术路线") for the full route and the keep/discard/add plan.
+The cross-paper **link network** + ideation + grounded drafting are now **built
+(architecture v2)**: slim cards (metadata + tags + a coarse summary), an
+IDF-recalled / AI-typed relation graph, a concept→passage index, and quote-grounded
+drafting. See `Document_Decomposer/CONNECTION_PLAN.md` (route + v2 status) and
+`Document_Decomposer/ISSUES.md` (known limits). Open next steps:
+
+1. Provide the user's own past papers as a writing-style corpus (to close the
+   style loop in drafting; see ISSUES I11).
+2. Polish: vocabulary non-determinism (I12) and spot-check over-flagging (I13).
+3. Reduce hand-written metadata rules; keep the English-paper workflow stable.

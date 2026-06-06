@@ -4,6 +4,13 @@ This guide is for future AI agents working in this project. Read it before chang
 
 For the current project snapshot and open problems, read `HANDOFF.md` first.
 
+> **架构 v2 已上线（2026-06，以此为准，先读 `CONNECTION_PLAN.md`）**：卡片已**瘦身**——
+> `literature_card.json` 现在只有 `paper / classification / summary（objective + main_findings +
+> methods_systems）/ ai_warnings`，**不再有** key_findings / study_design / variables / mechanisms /
+> quantitative_results / fuzzy_keywords / core_question / 逐字引文。事实只在 reading blocks（出稿用时现取）。
+> 判关系读卡片 summary；建卡逻辑在 `src/docdecomp/slim_card.py`。
+> **本指南下方关于"厚卡片字段"的描述属于 v1，已被取代，仅作历史参考。**
+
 > **方向变更（2026-06，先读 HANDOFF「目标与技术路线」）**：项目从“自底向上摘要金字塔”
 > 转向“**给卡片织跨篇关联网（只连不合）+ 用时现拼**”。两点影响本指南的取舍：
 > 1. `evidence_atoms` 现在的定位是“**可溯源证据，最后钻取原文时才用**”——只需**不编造 +
