@@ -25,9 +25,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from dataclasses import replace
+
 from docdecomp.ai_client import OpenAICompatibleClient, load_ai_config
 
 CONN = ROOT / "reports" / "connection"
+DEFAULT_MODEL = "deepseek-v4-pro"  # angle-finding is high-value and infrequent -> use the stronger model
 
 
 def build_candidates(edges, cidx, n_each=10):
@@ -96,6 +99,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default=None)
     ap.add_argument("--n", type=int, default=6, help="How many angles to propose.")
+    ap.add_argument("--model", default=DEFAULT_MODEL, help=f"Model (default {DEFAULT_MODEL}).")
     args = ap.parse_args()
 
     edges = json.loads((CONN / "edges.json").read_text(encoding="utf-8"))["edges"]
@@ -106,7 +110,7 @@ def main() -> int:
         f"Propose {args.n} grounded review angles. Cover a mix of tension, gap, and synthesis.\n\n"
         f"NETWORK STRUCTURE (use only this):\n{json.dumps(cand, ensure_ascii=False, indent=1)}"
     )
-    config = load_ai_config(ROOT, Path(args.config) if args.config else None)
+    config = replace(load_ai_config(ROOT, Path(args.config) if args.config else None), model=args.model)
     client = OpenAICompatibleClient(config)
     text = client.chat_text([
         {"role": "system", "content": SYSTEM},

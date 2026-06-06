@@ -1,12 +1,24 @@
-"""Step 3 of interrogation: an AI verifier that reads the SOURCE and judges an angle.
+"""Step 3 of interrogation: verify a claimed relation by an ADVERSARIAL panel of pro models.
 
-Workflow: propose_angles (AI finds angles) -> query_network (plain, locates papers)
--> THIS (AI reads each paper's own passages and judges whether the flagged
-relation is real). Honest about the S121-S93 lesson: a flagged "contradiction" may
-actually be agreement or merely conditional, so the verifier is told to DISTRUST the
-flag and judge only from the passages. Output is still AI -- a human adjudicates (I10).
+Why this exists: the old version used a dumb keyword script to pull "relevant" sentences,
+then asked ONE model to judge. It failed twice on the weakest link -- retrieval. It missed
+S121's decisive sentence ("selectivity ... increases with the reduction of nanopores") because
+that sentence said "nanopores"/"reduction", not the search terms "pore size"/"smaller", and
+the sentence cap evicted it. So a real contradiction was wrongly called FALSE.
 
-Plain retrieval (no AI) pulls the relevant sentences; DeepSeek does the judging.
+New design (cost is not a concern; verification runs on a handful of angles):
+  0. Plain script loads the FULL text of each paper (skip refs/ack/front matter only).
+     No keyword filtering -- whole sections are fed, so nothing decisive can be filtered out.
+     If the papers are too large, degrade by dropping whole low-value sections (methods/intro),
+     never by keyword.
+  1. PROSECUTOR (pro): build the strongest case the relation is REAL; quote verbatim.
+  2. DEFENSE   (pro): build the strongest case it is FALSE or merely CONDITIONAL; name the
+     reconciling variable; quote verbatim. (1 and 2 are blind to each other.)
+  3. Plain script verifies every quote actually exists in the source (whitespace-insensitive,
+     so OCR ligature spacing like "satis fi ed" still matches). Fabricated quotes are dropped.
+  4. JUDGE (pro): decides real|false|conditional from the VERIFIED quotes only, with confidence.
+  5. If confidence is not high, escalate to the human (you + Claude) -- I10: never trust one
+     AI verdict blindly; a human adjudicates.
 
 Output: reports/connection/verify_<papers>.json
 """
@@ -17,6 +29,7 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,104 +41,218 @@ from docdecomp.ai_client import OpenAICompatibleClient, load_ai_config
 
 CONN = ROOT / "reports" / "connection"
 SKIP_SECTIONS = {"references", "acknowledgements", "front_matter", "keywords"}
-
-SYSTEM = (
-    "You verify whether a claimed relation between papers is real, judging ONLY from each "
-    "paper's own passages provided. DISTRUST the claim/flag -- it may be wrong. A flagged "
-    "'contradiction' is often actually: (a) real, (b) FALSE (the papers actually agree), or "
-    "(c) CONDITIONAL (both true, but they differ because of some variable like wettability, "
-    "pore size, pressure, method). If conditional, NAME the reconciling variable and cite the "
-    "passages showing each paper's condition. Quote the exact sentence from each paper that "
-    "supports your verdict. If the passages do not actually conflict, say FALSE. Do not invent."
-)
-
-SCHEMA_HINT = (
-    'Respond with JSON: {"verdict":"real|false|conditional","reconciling_variable":"<or null>",'
-    '"per_paper":[{"id":"Sxx","stance":"<one line>","quote":"<verbatim sentence>"}],'
-    '"explanation":"<2-3 sentences>"}'
-)
+HIGH_VALUE = {"abstract", "results", "results_discussion", "discussion", "conclusion"}
+# Above this combined size, drop low-value sections (keep WHOLE high-value ones) rather than
+# keyword-filter. ~160k chars ~ 40k tokens, well under the model context window.
+MAX_CHARS = 160_000
+# Default is pure pro. We tested a flash-first hybrid (cheap flash judges, escalate to pro on low
+# confidence) but multi-run evidence killed it: on a subtle CONDITIONAL pair (S121-S43) pure flash
+# gave three different verdicts across three runs (false/conditional/real) and labelled all of them
+# HIGH confidence -- i.e. it was confidently WRONG, so the low-confidence escalation never fired and
+# a wrong verdict would ship. Pure pro was stable and correct (conditional x3, high x3) on the same
+# pair. Cost is not a concern for the handful of angles verified. (Hybrid still reachable via flags:
+# --model deepseek-v4-flash --escalate-model deepseek-v4-pro.)
+FIRST_MODEL = "deepseek-v4-pro"
+ESCALATE_MODEL = "none"
 
 
-# words that signal a FINDING/direction -- these sentences matter most for judging a relation
-DIRECTION_WORDS = (
-    "increase", "increased", "increases", "increasing", "enhance", "enhanced", "improv",
-    "higher", "greater", "more ", "stronger", "rise", "raised", "promot",
-    "decrease", "decreased", "decreases", "decreasing", "reduce", "reduced", "reduces",
-    "lower", "less ", "weaker", "suppress", "drop", "decline", "hinder",
-)
-HIGH_VALUE_SECTIONS = {"abstract", "conclusion", "results_discussion", "discussion"}
-
-
-def passages(pid: str, terms: list[str], max_sent: int = 18, max_chars: int = 4000) -> list[str]:
-    """Plain retrieval. Prioritise sentences that carry a DIRECTION/finding and that live in
-    abstract/conclusion/discussion, so the key conclusion is not truncated away (the bug that
-    made the S08 vug verdict wrong)."""
+def load_full_text(pid: str, hv_only: bool = False) -> str:
     path = ROOT / "library" / pid / "reading_blocks.json"
     try:
         blocks = json.loads(path.read_text(encoding="utf-8")).get("reading_blocks", [])
     except (OSError, json.JSONDecodeError):
-        return []
-    terms_l = [t.lower() for t in terms]
-    cand, seen = [], set()
-    for order, b in enumerate(blocks):
-        if b.get("section_kind") in SKIP_SECTIONS:
-            continue
+        return ""
+    parts = []
+    for b in sorted(blocks, key=lambda x: x.get("order", 0)):
         sec = b.get("section_kind", "")
-        for s in re.split(r"(?<=[.]) ", b.get("text", "") or ""):
-            sl = s.lower()
-            if not any(t in sl for t in terms_l):
-                continue
-            key = s.strip()[:50]
-            if key in seen:
-                continue
-            seen.add(key)
-            score = (2 if any(w in sl for w in DIRECTION_WORDS) else 0) + (1 if sec in HIGH_VALUE_SECTIONS else 0)
-            cand.append((score, order, sec, s.strip()[:300]))
-    # keep the highest-value sentences, then show them in document order
-    cand.sort(key=lambda c: c[0], reverse=True)
-    kept = cand[:max_sent]
-    kept.sort(key=lambda c: c[1])
-    out, total = [], 0
-    for _, _, sec, snip in kept:
-        out.append(f"«{sec}» {snip}")
-        total += len(snip)
-        if total >= max_chars:
-            break
+        if sec in SKIP_SECTIONS:
+            continue
+        if hv_only and sec not in HIGH_VALUE:
+            continue
+        t = (b.get("text") or "").strip()
+        cap = (b.get("caption") or "").strip()
+        if t:
+            parts.append(f"«{sec}» {t}")
+        if cap:
+            parts.append(f"«{sec}/caption» {cap}")
+    return "\n".join(parts)
+
+
+def assemble(pids: list[str]) -> tuple[dict[str, str], str]:
+    texts = {pid: load_full_text(pid) for pid in pids}
+    if sum(len(t) for t in texts.values()) > MAX_CHARS:
+        texts = {pid: load_full_text(pid, hv_only=True) for pid in pids}
+        return texts, "high-value sections only (full text exceeded budget)"
+    return texts, "full text"
+
+
+def norm(s: str) -> str:
+    """Whitespace-insensitive, lowercase -- so 'satis fi ed' (OCR ligature) matches 'satisfied'."""
+    return re.sub(r"\s+", "", s or "").lower()
+
+
+def check_quotes(evidence: list[dict], source_norm: dict[str, str]) -> list[dict]:
+    """A quote is verified if it exists in its paper's source. Quotes often contain an ellipsis
+    ('...' / '…') joining two non-adjacent fragments; split on it and require EVERY fragment to
+    appear, so a legitimate elided quote is not falsely rejected (the bug that flipped the S08-S28
+    vug verdict to 'real')."""
+    out = []
+    for e in evidence or []:
+        pid = e.get("paper", "")
+        src = source_norm.get(pid, "")
+        frags = [f for f in re.split(r"\.{3,}|…", e.get("quote", "")) if len(norm(f)) >= 12]
+        if frags:
+            verified = bool(src) and all(norm(f) in src for f in frags)
+        else:
+            nq = norm(e.get("quote", ""))
+            verified = len(nq) >= 12 and nq in src
+        out.append({**e, "verified": bool(verified)})
     return out
+
+
+PROSECUTOR = (
+    "You are the PROSECUTOR. Build the STRONGEST possible case that the claimed relation is REAL "
+    "-- that the papers genuinely disagree (or genuinely connect) exactly as claimed. Read each "
+    "paper's FULL text and HUNT for the specific sentence in EACH paper that states its "
+    "direction/finding on the exact point in question (e.g. how a variable affects an outcome). "
+    "Copy those sentences VERBATIM, exactly as written, including any OCR artifacts; do not "
+    "paraphrase. If, after a thorough search, the evidence for REAL is genuinely weak, say so "
+    "honestly. NEVER invent a quote -- only copy text that is present in the papers."
+)
+DEFENSE = (
+    "You are the DEFENSE. Build the STRONGEST possible case that the claimed relation is NOT real: "
+    "either FALSE (the papers actually agree, or are about DIFFERENT quantities/systems so they do "
+    "not truly conflict) or merely CONDITIONAL (both true; they differ only because of a "
+    "reconciling variable such as substrate/mineral, pore size, pressure, temperature, wettability, "
+    "or method/force field). Read each paper's FULL text, quote VERBATIM the sentences that undercut "
+    "the claim or expose the reconciling variable, and NAME that variable. NEVER invent a quote."
+)
+JUDGE = (
+    "You are the JUDGE. You receive a CLAIM, the PROSECUTOR's case (arguing REAL) and the DEFENSE's "
+    "case (arguing FALSE/CONDITIONAL). Quotes marked UNVERIFIED do NOT exist in the source -- give "
+    "them ZERO weight. Decide from the VERIFIED quotes alone: 'real', 'false', or 'conditional'. "
+    "If conditional, name the reconciling variable. Set confidence 'high'|'medium'|'low' -- use "
+    "'low' when the verified evidence is thin or the two sides' verified quotes genuinely conflict. "
+    "List the decisive verified quotes. Be honest; do NOT split the difference just to be safe."
+)
+
+ADV_SCHEMA = (
+    'Respond with JSON: {"position":"real|false|conditional","reconciling_variable":"<or null>",'
+    '"evidence":[{"paper":"Sxx","quote":"<verbatim sentence>","why":"<one line>"}],'
+    '"argument":"<2-3 sentences>"}'
+)
+JUDGE_SCHEMA = (
+    'Respond with JSON: {"verdict":"real|false|conditional","reconciling_variable":"<or null>",'
+    '"confidence":"high|medium|low","decisive_quotes":[{"paper":"Sxx","quote":"<verbatim>"}],'
+    '"explanation":"<2-4 sentences>"}'
+)
+
+
+def run_advocate(client, role_system: str, claim: str, texts: dict[str, str]) -> dict:
+    blocks = "\n\n".join(f"===== {pid} (FULL TEXT) =====\n{txt or '(no text found)'}"
+                         for pid, txt in texts.items())
+    user = f"CLAIMED relation to argue about: {claim}\n\nThe papers:\n\n{blocks}"
+    return client.chat_json([{"role": "system", "content": role_system},
+                             {"role": "user", "content": user}], ADV_SCHEMA)
+
+
+def fmt_case(name: str, brief: dict, checked: list[dict]) -> str:
+    lines = [f"{name} POSITION: {brief.get('position', '')}",
+             f"{name} reconciling_variable: {brief.get('reconciling_variable')}",
+             f"{name} ARGUMENT: {brief.get('argument', '')}",
+             f"{name} EVIDENCE:"]
+    for e in checked:
+        tag = "VERIFIED" if e["verified"] else "UNVERIFIED(ignore)"
+        lines.append(f"  - [{tag}] {e.get('paper')}: \"{e.get('quote', '')}\"  ({e.get('why', '')})")
+    return "\n".join(lines)
+
+
+def run_panel(model: str, claim: str, texts: dict[str, str], source_norm: dict[str, str],
+              config_path: Path | None) -> dict:
+    config = replace(load_ai_config(ROOT, config_path), model=model)
+    client = OpenAICompatibleClient(config)
+    print(f"[{model}] PROSECUTOR (argues REAL) ...")
+    pros = run_advocate(client, PROSECUTOR, claim, texts)
+    print(f"[{model}] DEFENSE (argues FALSE/CONDITIONAL) ...")
+    defe = run_advocate(client, DEFENSE, claim, texts)
+    pros_checked = check_quotes(pros.get("evidence", []), source_norm)
+    defe_checked = check_quotes(defe.get("evidence", []), source_norm)
+    print(f"[{model}] JUDGE (verified quotes only) ...")
+    judge_user = (f"CLAIM: {claim}\n\n"
+                  + fmt_case("PROSECUTOR", pros, pros_checked) + "\n\n"
+                  + fmt_case("DEFENSE", defe, defe_checked))
+    verdict = client.chat_json([{"role": "system", "content": JUDGE},
+                                {"role": "user", "content": judge_user}], JUDGE_SCHEMA)
+    return {
+        "model": model,
+        "prosecutor": {**pros, "evidence_checked": pros_checked},
+        "defense": {**defe, "evidence_checked": defe_checked},
+        "judge": verdict,
+    }
+
+
+def print_panel(panel: dict) -> None:
+    v = panel["judge"]
+    print("\n" + "=" * 60)
+    print(f"[{panel['model']}] VERDICT: {v.get('verdict')}   confidence: {v.get('confidence')}"
+          f"   reconciling_variable: {v.get('reconciling_variable')}")
+    for q in v.get("decisive_quotes", []):
+        print(f"  [{q.get('paper')}] \"{q.get('quote', '')[:150]}\"")
+    print(f"explanation: {v.get('explanation', '')}")
+    pc, dc = panel["prosecutor"]["evidence_checked"], panel["defense"]["evidence_checked"]
+    print(f"quote check: prosecutor {sum(e['verified'] for e in pc)}/{len(pc)} verified, "
+          f"defense {sum(e['verified'] for e in dc)}/{len(dc)} verified")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--papers", required=True, help="Comma list, e.g. S08,S28")
-    ap.add_argument("--terms", required=True, help="Comma list of terms to pull passages on, e.g. vug,sweep")
-    ap.add_argument("--claim", default="", help="The claimed relation/thesis to test (context only).")
+    ap.add_argument("--papers", required=True, help="Comma list, e.g. S121,S43")
+    ap.add_argument("--claim", required=True, help="The claimed relation/thesis to test.")
+    ap.add_argument("--model", default=FIRST_MODEL, help=f"First-pass model (default {FIRST_MODEL}).")
+    ap.add_argument("--escalate-model", default=ESCALATE_MODEL,
+                    help=f"Re-run with this if first pass is not confident (default {ESCALATE_MODEL}; "
+                         "'none' to disable).")
     ap.add_argument("--config", default=None)
     args = ap.parse_args()
 
     pids = [p.strip() for p in args.papers.split(",") if p.strip()]
-    terms = [t.strip() for t in args.terms.split(",") if t.strip()]
-    blocks = []
-    for pid in pids:
-        ps = passages(pid, terms)
-        blocks.append(f"===== {pid} (its own passages on: {', '.join(terms)}) =====\n"
-                      + ("\n".join(ps) if ps else "(no matching passages found)"))
-    user = (
-        (f"CLAIMED relation to test (DISTRUST it): {args.claim}\n\n" if args.claim else "")
-        + "Judge ONLY from these passages:\n\n" + "\n\n".join(blocks)
-    )
-    client = OpenAICompatibleClient(load_ai_config(ROOT, Path(args.config) if args.config else None))
-    resp = client.chat_json([{"role": "system", "content": SYSTEM},
-                             {"role": "user", "content": user},
-                             {"role": "system", "content": SCHEMA_HINT}], SCHEMA_HINT)
+    texts, note = assemble(pids)
+    source_norm = {pid: norm(t) for pid, t in texts.items()}
+    cfg = Path(args.config) if args.config else None
+    print(f"loaded {note}: " + ", ".join(f"{pid}={len(texts[pid])}c" for pid in pids))
 
+    first = run_panel(args.model, args.claim, texts, source_norm, cfg)
+    print_panel(first)
+
+    final = first
+    escalated = False
+    esc_model = args.escalate_model
+    if first["judge"].get("confidence") != "high" and esc_model and esc_model.lower() != "none" \
+            and esc_model != args.model:
+        print(f"\n⚠ {args.model} not confident -> escalating to {esc_model} ...")
+        final = run_panel(esc_model, args.claim, texts, source_norm, cfg)
+        print_panel(final)
+        escalated = True
+
+    still_unsure = final["judge"].get("confidence") != "high"
+    result = {
+        "papers": pids, "claim": args.claim, "source": note,
+        "first_pass": first,
+        "escalated": escalated,
+        "final": final,
+        "escalate_to_human": still_unsure,
+    }
     out = CONN / f"verify_{'_'.join(pids)}.json"
-    out.write_text(json.dumps(resp, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"VERDICT: {resp.get('verdict')}   reconciling_variable: {resp.get('reconciling_variable')}")
-    for pp in resp.get("per_paper", []):
-        print(f"  [{pp.get('id')}] {pp.get('stance','')}")
-        print(f"      \"{pp.get('quote','')[:160]}\"")
-    print(f"explanation: {resp.get('explanation','')}")
-    print(f"\nWrote {out}")
+    out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    print("\n" + "#" * 60)
+    fv = final["judge"]
+    tag = f"{first['model']}->{final['model']}" if escalated else final["model"]
+    print(f"FINAL [{tag}]: {fv.get('verdict')}  confidence={fv.get('confidence')}  "
+          f"reconciling={fv.get('reconciling_variable')}")
+    if still_unsure:
+        print("⚠ still not high confidence -> ESCALATE: a human (you + Claude) should adjudicate.")
+    print(f"Wrote {out}")
     return 0
 
 

@@ -23,8 +23,11 @@
 1. `propose_angles.py` — DeepSeek 从矛盾/空白/互补簇捞**候选创新点**(提示词里编码了标准:
    优先 矛盾>空白>新框架综合;排除"方法流行度/趋势总结/泛泛";宁缺毋滥)。
 2. `query_network.py` — 纯脚本,把某角度的论文+关系+片段**拉到面前**(只读)。
-3. `verify_angle.py` — DeepSeek **读原文判**所给矛盾是 真/假/有条件(怀疑式,不信 flag);
-   产出 verdict + 调和变量 + 逐字引文。**注意:最弱环是"取原文"——取不全就判错**(见 ISSUES I10/I13)。
+3. `verify_angle.py` — **对抗式全文裁决**所给矛盾是 真/假/有条件:喂全文(不按词检索,避免漏句)
+   → 控方(证真)/辩方(证假或有条件)各读全文逐字举证 → 脚本逐字核真引文(带省略号会拆段核)
+   → 裁判只认核真引文下判。**默认纯 pro**(实测纯 flash 在难·有条件对子上会自信判错;hybrid 仍可用
+   `--model`/`--escalate-model` 切换);信心非 high 标记交人裁(I10)。
+   产出 verdict + 调和变量 + 双方核真引文。设计、bug、模型选型证据见 ISSUES I14。
 4. 人(你)对着证据**最终定夺**;定了论点再 `draft_section.py` 出稿。
 - `draft_section.py` — 接地出稿(从 block 取逐字引文 + 数字保真闸;可选风格 pass)。
 - `build_graph_html.py` — 导出自建 HTML 交互图(非 Obsidian)。
