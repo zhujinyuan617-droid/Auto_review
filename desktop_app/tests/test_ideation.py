@@ -35,6 +35,18 @@ def test_load_angles_reads_files(tmp_path: Path):
     assert out["gaps"][0]["concept"] == "methane uptake"
 
 
+def test_load_angles_unwraps_real_concept_index_shape(tmp_path: Path):
+    # The engine writes concept_index.json wrapped: {n_papers, n_concepts, concepts:{...}}.
+    # load_angles must unwrap ["concepts"], else iterating the wrapper hits an int and crashes.
+    edges_path = tmp_path / "edges.json"
+    edges_path.write_text(json.dumps({"edges": EDGES}), encoding="utf-8")
+    cidx_path = tmp_path / "concept_index.json"
+    cidx_path.write_text(json.dumps({"n_papers": 259, "n_concepts": 1, "concepts": CIDX}), encoding="utf-8")
+
+    out = load_angles(edges_path, cidx_path)
+    assert out["gaps"][0]["concept"] == "methane uptake"
+
+
 def test_load_angles_missing_files_empty(tmp_path: Path):
     out = load_angles(tmp_path / "nope.json", tmp_path / "nada.json")
     assert out == {"tension": [], "gaps": [], "synthesis": []}

@@ -48,3 +48,24 @@ def test_search_maps_items_to_records():
     assert records[0].authors == ("Smith, John",)
     assert records[1].year == "2018"
     assert records[1].journal == ""
+
+
+def test_fetch_by_doi_maps_message_to_record():
+    doi = "10.1063/1.2764109"
+    url = CROSSREF_URL + "/" + doi
+    canned = {"message": {
+        "DOI": doi, "title": ["Hindered settling"], "container-title": ["PoF"],
+        "issued": {"date-parts": [[2007]]},
+        "author": [{"family": "Yin", "given": "Xiaolong"}, {"family": "Koch", "given": "Donald L."}],
+    }}
+    transport = FakeTransport(json_responses={url: canned})
+    rec = CrossrefSource().fetch_by_doi(doi, transport)
+    assert rec is not None
+    assert rec.doi == doi
+    assert rec.authors == ("Yin, Xiaolong", "Koch, Donald L.")
+
+
+def test_fetch_by_doi_none_when_no_message():
+    url = CROSSREF_URL + "/10.0/missing"
+    transport = FakeTransport(json_responses={url: {"status": "ok"}})
+    assert CrossrefSource().fetch_by_doi("10.0/missing", transport) is None

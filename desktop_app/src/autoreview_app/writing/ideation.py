@@ -42,6 +42,12 @@ def load_angles(edges_path: Path, concept_index_path: Path) -> dict[str, Any]:
     edges = (edges_doc.get("edges") if isinstance(edges_doc, dict) else None) or []
     if not isinstance(cidx, dict):
         cidx = {}
+    # The engine writes concept_index.json wrapped as {n_papers, n_concepts,
+    # concepts: {...}}; build_candidates expects the bare concept map (the engine's
+    # propose_angles.main unwraps ["concepts"]). Mirror that here, else iterating
+    # the wrapper hits the n_papers int and crashes.
+    if isinstance(cidx.get("concepts"), dict):
+        cidx = cidx["concepts"]
     if not edges and not cidx:
         return _empty_angles()
     return propose_candidate_angles(edges, cidx)

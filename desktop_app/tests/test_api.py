@@ -32,4 +32,4 @@ def test_index_html_served(tmp_path: Path):
     response = _client(tmp_path).get("/")
     assert response.status_code == 200
     assert "Auto Review" in response.text
-    assert "/library" in response.text  # the page fetches the library endpoint
+    assert "/assets/app.js" in response.text  # shell loads the router module

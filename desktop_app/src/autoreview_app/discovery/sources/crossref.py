@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from ..records import CitationRecord
 from ..transport import Transport
@@ -19,6 +20,14 @@ class CrossrefSource:
         data = transport.get_json(CROSSREF_WORKS_URL, {"query": query, "rows": str(rows)})
         items = (data.get("message") or {}).get("items") or []
         return [self._to_record(item) for item in items]
+
+    def fetch_by_doi(self, doi: str, transport: Transport) -> CitationRecord | None:
+        """Fetch one work by DOI from Crossref; return a CitationRecord or None."""
+        data = transport.get_json(f"{CROSSREF_WORKS_URL}/{quote(doi, safe='/')}", {})
+        message = data.get("message") if isinstance(data, dict) else None
+        if not isinstance(message, dict):
+            return None
+        return self._to_record(message)
 
     def fetch(self, record: CitationRecord, transport: Transport) -> bytes | None:
         return None  # Crossref is metadata-only

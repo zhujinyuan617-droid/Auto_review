@@ -2,22 +2,23 @@
 <html lang="zh">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Auto Review</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
-    <h1>Auto Review</h1>
-    <p id="status">加载中…</p>
-    <script>
-      fetch("/library")
-        .then((r) => r.json())
-        .then((d) => {
-          const n = (d.papers || []).length;
-          document.getElementById("status").textContent =
-            n === 0 ? "藏书为空,先去导入论文" : `藏书 ${n} 篇`;
-        })
-        .catch(() => {
-          document.getElementById("status").textContent = "连接后端失败";
-        });
-    </script>
+    <header id="topbar"><h1>Auto Review</h1></header>
+    <div id="layout">
+      <nav id="nav">
+        <a href="#/papers">藏书</a>
+        <a href="#/import">导入</a>
+        <a href="#/network">关系网</a>
+        <a href="#/groups">课题组</a>
+        <a href="#/writing">写作</a>
+        <a href="#/settings">设置</a>
+      </nav>
+      <main id="view">加载中…</main>
+    </div>
+    <script type="module" src="/assets/app.js"></script>
   </body>
 </html>
