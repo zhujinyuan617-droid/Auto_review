@@ -25,8 +25,16 @@ from docdecomp.slim_card import (  # noqa: E402
     validate_slim_card,
 )
 
-SECTIONS_HINT = "Return JSON with paper_id, sections[], warnings[]."
-READING_HINT = "Return JSON with paper_id, reading_blocks[], warnings[]."
+# Match the engine scripts' schema hints (incl. the "no Markdown" instruction) so
+# a real client behaves the same as the engine's own runs.
+SECTIONS_HINT = (
+    "Return only one JSON object with keys: paper_id, sections, warnings. "
+    "Do not wrap the JSON in Markdown."
+)
+READING_HINT = (
+    "Return only one JSON object with keys: paper_id, reading_blocks, warnings. "
+    "Do not wrap the JSON in Markdown."
+)
 
 
 class AIClient(Protocol):
@@ -41,7 +49,8 @@ def run_sections_stage(paper_dir: Path, client: AIClient) -> dict[str, Any]:
     allowed = {b["block_id"] for b in content.get("blocks", [])}
     warnings = sections_stage.validate_ai_sections(result, content.get("paper_id", ""), allowed)
     if warnings:
-        result["validation_warnings"] = warnings
+        # Mirror the engine: preserve any warnings the model emitted, then append ours.
+        result.setdefault("validation_warnings", []).extend(warnings)
     write_json(paper_dir / "ai_sections.json", result)
     return result
 
@@ -52,6 +61,9 @@ def run_reading_stage(paper_dir: Path, client: AIClient) -> dict[str, Any]:
     messages = build_reading_prompt(content, ai_sections, 650)
     plan = client.chat_json(messages, READING_HINT)
     warnings = [*repair_plan_coverage(plan, content, ai_sections), *validate_plan(plan, content, ai_sections)]
+    if warnings:
+        # Mirror the engine: persist repair/validation notes back into the plan file.
+        plan.setdefault("validation_warnings", []).extend(warnings)
     package = build_reading_package(plan, content, ai_sections)
     report = build_merge_report(package, content, warnings)
     write_json(paper_dir / "reading_blocks.plan.json", plan)
@@ -67,7 +79,11 @@ def run_card_stage(paper_dir: Path, client: AIClient) -> dict[str, Any]:
     messages = build_slim_prompt(reading, metadata, 900)
     raw = client.chat_json(messages, SLIM_SCHEMA_HINT)
     card = ensure_slim_defaults(raw, reading, metadata)
-    card["validation"] = validate_slim_card(card)
+    # Don't pollute the card schema with a "validation" key (the engine never does).
+    # If the card is incomplete, surface it the way the engine's --from-card path does.
+    validation = validate_slim_card(card)
+    if validation.get("status") != "ok":
+        card.setdefault("ai_warnings", []).append(f"validator:{validation.get('warnings')}")
     write_json(paper_dir / "literature_card.json", card)
     return card
 
