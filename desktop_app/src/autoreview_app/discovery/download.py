@@ -16,6 +16,20 @@ def _safe_stem(record: CitationRecord, index: int) -> str:
     return (cleaned[:60].strip("_") or f"paper{index}")
 
 
+def _unique_path(dest_dir: Path, stem: str) -> Path:
+    """A non-existing path for stem.pdf, suffixing _1, _2, ... on collision.
+
+    Two distinct papers whose DOI/title sanitize to the same stem must NOT
+    overwrite each other (that would lose data and desync the reported sha256).
+    """
+    candidate = dest_dir / f"{stem}.pdf"
+    counter = 1
+    while candidate.exists():
+        candidate = dest_dir / f"{stem}_{counter}.pdf"
+        counter += 1
+    return candidate
+
+
 def download_records(
     records: list[CitationRecord],
     fetchers: list[SourcePlugin],
@@ -48,7 +62,7 @@ def download_records(
             results.append({"key": record.key, "status": "duplicate", "path": seen[digest], "sha256": digest})
             continue
 
-        path = dest_dir / f"{_safe_stem(record, index)}.pdf"
+        path = _unique_path(dest_dir, _safe_stem(record, index))
         path.write_bytes(data)
         seen[digest] = str(path)
         results.append({"key": record.key, "status": "downloaded", "path": str(path), "sha256": digest})
