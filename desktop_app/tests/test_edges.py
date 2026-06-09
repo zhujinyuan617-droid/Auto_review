@@ -38,3 +38,18 @@ def test_empty_graph_is_an_independent_copy(tmp_path: Path):
     g1["relation_counts"]["x"] = 1
     g2 = load_edges(tmp_path / "missing.json")
     assert g2 == {"edges": [], "relation_counts": {}, "n_edges": 0}
+
+
+def test_non_dict_json_root_returns_empty_graph(tmp_path: Path):
+    # Valid JSON that is not an object must not crash (AttributeError on .get).
+    for content in ("[]", "null", "42", '"hi"'):
+        path = tmp_path / "edges.json"
+        path.write_text(content, encoding="utf-8")
+        assert load_edges(path) == {"edges": [], "relation_counts": {}, "n_edges": 0}
+
+
+def test_non_list_edges_field_is_coerced_to_empty(tmp_path: Path):
+    path = tmp_path / "edges.json"
+    path.write_text(json.dumps({"edges": "supports", "relation_counts": "bad"}), encoding="utf-8")
+    graph = load_edges(path)
+    assert graph == {"edges": [], "relation_counts": {}, "n_edges": 0}

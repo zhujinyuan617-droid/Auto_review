@@ -2,10 +2,24 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
 from ..library_index import list_papers
+
+# FastAPI runs sync route handlers in a threadpool, so reindex can be called
+# concurrently. Serialize writers so two threads never race on the rebuild.
+_REINDEX_LOCK = threading.Lock()
+
+_CREATE_TABLE = """
+CREATE TABLE IF NOT EXISTS papers (
+    paper_id TEXT PRIMARY KEY, has_card INTEGER,
+    title TEXT, year TEXT, journal TEXT, doi TEXT, paper_type TEXT,
+    objective TEXT, research_objects TEXT, methods TEXT,
+    domain_tags TEXT, main_findings TEXT
+)
+"""
 
 # Columns kept as JSON text (tag arrays / findings) are decoded on read.
 _JSON_COLS = ("research_objects", "methods", "domain_tags", "main_findings")
@@ -42,34 +56,32 @@ def _row_from(paper_id: str, card: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def reindex(library_dir: Path, db_path: Path) -> int:
-    """(Re)build the SQLite index from the library dir. Returns the paper count."""
+    """(Re)build the SQLite index from the library dir. Returns the paper count.
+
+    Concurrency-safe and atomic: the table is created once (never dropped), and
+    the clear+reinsert happens inside one transaction under a process-wide lock.
+    A concurrent reader on another connection always sees a complete table
+    (old rows or new rows), never a half-dropped one.
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute("DROP TABLE IF EXISTS papers")
-        conn.execute(
-            """
-            CREATE TABLE papers (
-                paper_id TEXT PRIMARY KEY, has_card INTEGER,
-                title TEXT, year TEXT, journal TEXT, doi TEXT, paper_type TEXT,
-                objective TEXT, research_objects TEXT, methods TEXT,
-                domain_tags TEXT, main_findings TEXT
-            )
-            """
-        )
-        rows = [_row_from(pid, _load_card(library_dir / pid)) for pid in list_papers(library_dir)]
-        conn.executemany(
-            """
-            INSERT INTO papers VALUES
-            (:paper_id, :has_card, :title, :year, :journal, :doi, :paper_type,
-             :objective, :research_objects, :methods, :domain_tags, :main_findings)
-            """,
-            rows,
-        )
-        conn.commit()
-        return len(rows)
-    finally:
-        conn.close()
+    rows = [_row_from(pid, _load_card(library_dir / pid)) for pid in list_papers(library_dir)]
+    with _REINDEX_LOCK:
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(_CREATE_TABLE)
+            with conn:  # one transaction: DELETE + re-INSERT commit together
+                conn.execute("DELETE FROM papers")
+                conn.executemany(
+                    """
+                    INSERT INTO papers VALUES
+                    (:paper_id, :has_card, :title, :year, :journal, :doi, :paper_type,
+                     :objective, :research_objects, :methods, :domain_tags, :main_findings)
+                    """,
+                    rows,
+                )
+        finally:
+            conn.close()
+    return len(rows)
 
 
 def _decode(row: sqlite3.Row) -> dict[str, Any]:

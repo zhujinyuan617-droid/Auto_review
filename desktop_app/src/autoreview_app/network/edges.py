@@ -22,9 +22,13 @@ def load_edges(edges_path: Path) -> dict[str, Any]:
         data = json.loads(edges_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return _empty_graph()
-    edges = data.get("edges") or []
+    if not isinstance(data, dict):
+        return _empty_graph()  # valid JSON but not an object (e.g. [], null, number)
+    edges = data.get("edges")
+    edges = edges if isinstance(edges, list) else []
+    counts = data.get("relation_counts")
     return {
         "edges": edges,
-        "relation_counts": data.get("relation_counts") or {},
+        "relation_counts": counts if isinstance(counts, dict) else {},
         "n_edges": len(edges),
     }

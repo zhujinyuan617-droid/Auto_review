@@ -57,3 +57,30 @@ def test_paper_without_card_is_indexed_minimally(tmp_path: Path):
     s9 = query_papers(db)[0]
     assert s9["paper_id"] == "S9"
     assert s9["has_card"] is False
+
+
+def test_concurrent_reindex_and_query_do_not_error(tmp_path: Path):
+    import threading
+
+    library = tmp_path / "library"
+    for i in range(5):
+        write_card(library, f"S{i + 1}", title=f"P{i}")
+    db = tmp_path / "index.db"
+    reindex(library, db)  # create the table once before the threads start
+
+    errors: list[Exception] = []
+
+    def worker() -> None:
+        try:
+            for _ in range(10):
+                reindex(library, db)
+                assert len(query_papers(db)) == 5
+        except Exception as exc:  # noqa: BLE001 — collected and asserted below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors, errors
