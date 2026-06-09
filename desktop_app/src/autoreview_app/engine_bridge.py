@@ -50,6 +50,19 @@ def ensure_engine_write_on_path() -> None:
         sys.path.insert(0, str(ENGINE_WRITE))
 
 
+ENGINE_USE = ENGINE_SRC.parent / "scripts" / "use"
+
+
+def ensure_engine_use_on_path() -> None:
+    """Put the engine's scripts/use dir on sys.path (lazy; only ideation needs it)."""
+    if not ENGINE_USE.is_dir():
+        raise RuntimeError(
+            f"Engine use scripts not found at {ENGINE_USE}; expected Document_Decomposer/scripts/use"
+        )
+    if str(ENGINE_USE) not in sys.path:
+        sys.path.insert(0, str(ENGINE_USE))
+
+
 def _slug(stem: str) -> str:
     # Cosmetic only: the engine parses the paper id from the "S<n>_" filename
     # prefix, not from this slug. Kept short for tidy filenames.
