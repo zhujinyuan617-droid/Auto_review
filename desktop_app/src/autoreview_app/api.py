@@ -17,6 +17,7 @@ from .network.edges import load_edges
 from .groups.cluster import cluster_papers
 from .groups.store import load_authors
 from .store.sqlite_index import get_paper, query_papers, reindex
+from .writing.gates import check_draft
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -37,6 +38,10 @@ class RisRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
+
+
+class DraftCheckRequest(BaseModel):
+    draft: str
 
 
 def _record_to_dict(rec: CitationRecord) -> dict[str, Any]:
@@ -123,6 +128,10 @@ def create_app(
         papers = query_papers(config.index_db)
         authors_by_doi = load_authors(config.authors_db)
         return {"groups": cluster_papers(papers, authors_by_doi)}
+
+    @app.post("/writing/check")
+    def writing_check(req: DraftCheckRequest) -> dict[str, Any]:
+        return check_draft(req.draft)
 
     return app
 
