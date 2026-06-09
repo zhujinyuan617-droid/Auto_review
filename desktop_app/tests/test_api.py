@@ -26,3 +26,10 @@ def test_library_lists_papers(tmp_path: Path):
     (tmp_path / "S01").mkdir()
     response = _client(tmp_path).get("/library")
     assert response.json() == {"papers": ["S01"]}
+
+
+def test_index_html_served(tmp_path: Path):
+    response = _client(tmp_path).get("/")
+    assert response.status_code == 200
+    assert "Auto Review" in response.text
+    assert "/library" in response.text  # the page fetches the library endpoint

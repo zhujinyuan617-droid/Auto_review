@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>Auto Review</title>
+  </head>
+  <body>
+    <h1>Auto Review</h1>
+    <p id="status">加载中…</p>
+    <script>
+      fetch("/library")
+        .then((r) => r.json())
+        .then((d) => {
+          const n = (d.papers || []).length;
+          document.getElementById("status").textContent =
+            n === 0 ? "藏书为空,先去导入论文" : `藏书 ${n} 篇`;
+        })
+        .catch(() => {
+          document.getElementById("status").textContent = "连接后端失败";
+        });
+    </script>
+  </body>
+</html>
