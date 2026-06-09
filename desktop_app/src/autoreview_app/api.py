@@ -13,6 +13,8 @@ from .discovery.ris import parse_ris_text
 from .jobs import JobRegistry
 from .library_index import list_papers
 from .network.edges import load_edges
+from .groups.cluster import cluster_papers
+from .groups.store import load_authors
 from .store.sqlite_index import get_paper, query_papers, reindex
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
@@ -106,6 +108,13 @@ def create_app(
         if config.edges_path is None:
             return {"edges": [], "relation_counts": {}, "n_edges": 0}
         return load_edges(config.edges_path)
+
+    @app.get("/groups")
+    def groups() -> dict:
+        reindex(config.library_dir, config.index_db)
+        papers = query_papers(config.index_db)
+        authors_by_doi = load_authors(config.authors_db)
+        return {"groups": cluster_papers(papers, authors_by_doi)}
 
     return app
 

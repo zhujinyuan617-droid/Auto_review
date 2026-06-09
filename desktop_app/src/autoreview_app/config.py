@@ -20,6 +20,11 @@ class AppConfig:
         """SQLite browse index, kept beside the library dir."""
         return self.library_dir.parent / "index.db"
 
+    @property
+    def authors_db(self) -> Path:
+        """DOI-keyed author store, kept beside the library dir."""
+        return self.library_dir.parent / "authors.db"
+
     @classmethod
     def from_env(cls) -> "AppConfig":
         raw = os.environ.get(ENV_LIBRARY_DIR)
