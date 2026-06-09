@@ -20,6 +20,8 @@ def cluster_papers(
     groups: dict[str, dict[str, Any]] = {}
     for paper in papers:
         doi = (paper.get("doi") or "").strip().lower()
+        if not doi:
+            continue  # no DOI -> can't match authors; also guards a "" store key
         authors = authors_by_doi.get(doi) or []
         anchor = anchor_author(authors)
         identity = author_identity(anchor)
