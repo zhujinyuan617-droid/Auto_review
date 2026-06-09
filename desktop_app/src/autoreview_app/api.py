@@ -27,6 +27,9 @@ ImportRunner = Callable[[Path, Callable[[str], None]], str]
 # A search runner takes a query string and returns a list of record dicts.
 SearchRunner = Callable[[str], list[dict[str, Any]]]
 
+# A draft runner takes (brief, progress) and returns a writing-loop summary dict.
+DraftRunner = Callable[[dict[str, Any], Callable[[str], None]], dict[str, Any]]
+
 
 class ImportRequest(BaseModel):
     pdf_path: str
@@ -44,6 +47,10 @@ class DraftCheckRequest(BaseModel):
     draft: str
 
 
+class DraftRequest(BaseModel):
+    brief: dict[str, Any]
+
+
 def _record_to_dict(rec: CitationRecord) -> dict[str, Any]:
     return {
         "title": rec.title, "doi": rec.doi, "year": rec.year,
@@ -55,6 +62,7 @@ def create_app(
     config: AppConfig,
     import_runner: ImportRunner | None = None,
     search_runner: SearchRunner | None = None,
+    draft_runner: DraftRunner | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Auto Review Desktop", version="0.1.0")
     jobs = JobRegistry()
@@ -132,6 +140,13 @@ def create_app(
     @app.post("/writing/check")
     def writing_check(req: DraftCheckRequest) -> dict[str, Any]:
         return check_draft(req.draft)
+
+    @app.post("/writing/draft")
+    def writing_draft(req: DraftRequest) -> dict:
+        if draft_runner is None:
+            raise HTTPException(status_code=503, detail="draft runner not configured")
+        job_id = jobs.submit(lambda report: draft_runner(req.brief, report))
+        return {"job_id": job_id}
 
     return app
 
