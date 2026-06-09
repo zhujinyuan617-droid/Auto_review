@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import keyring
+import keyring.errors
 
 # Where the user's API key lives in the OS credential store. The value is never
 # logged and never returned over HTTP — callers can only ask whether it is set.
@@ -25,4 +26,7 @@ def has_api_key() -> bool:
 
 
 def clear_api_key() -> None:
-    keyring.delete_password(_SERVICE, _USERNAME)
+    try:
+        keyring.delete_password(_SERVICE, _USERNAME)
+    except keyring.errors.PasswordDeleteError:
+        pass  # real backends raise when no key is set; clearing is idempotent here
