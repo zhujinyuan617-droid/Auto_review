@@ -22,12 +22,13 @@ def test_import_starts_a_job_and_reports_success(tmp_path: Path):
     job_id = resp.json()["job_id"]
 
     import time
+    status = None
     for _ in range(200):
         status = client.get(f"/jobs/{job_id}").json()
         if status["status"] in {"succeeded", "failed"}:
             break
         time.sleep(0.02)
-    assert status["status"] == "succeeded"
+    assert status is not None and status["status"] == "succeeded", f"job did not finish: {status}"
     assert status["result"] == "S1"
 
 
