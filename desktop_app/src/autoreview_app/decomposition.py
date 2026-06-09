@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+# The decomposition reader shows the "analysis -> result -> relation" spine.
+# Atom types background/limitation/scope/other are intentionally NOT surfaced
+# here (they are not part of that spine); a future task may add a dedicated
+# limitations section if needed.
 _ANALYSIS_TYPES = {"method", "variable", "mechanism"}
 _RESULT_TYPES = {"result", "quantitative_result"}
 

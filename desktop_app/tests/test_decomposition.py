@@ -47,6 +47,9 @@ def test_assembles_all_sections(tmp_path: Path):
     assert {a["evidence_atom_id"] for a in view["analyses"]} == {"S1-EVATOM-0001"}
     assert {a["evidence_atom_id"] for a in view["results"]} == {"S1-EVATOM-0002", "S1-EVATOM-0003"}
     assert all("reading_block_id" in a for a in view["analyses"] + view["results"])
+    # the background atom is surfaced in neither analyses nor results
+    shown = {a["evidence_atom_id"] for a in view["analyses"] + view["results"]}
+    assert "S1-EVATOM-0004" not in shown
 
     assert view["result_relations"][0]["synthesis_id"] == "S1-SYN-0001"
     assert view["result_relations"][0]["supporting_evidence_atom_ids"] == ["S1-EVATOM-0001", "S1-EVATOM-0002"]
