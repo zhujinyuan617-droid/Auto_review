@@ -22,3 +22,31 @@ def write_card(library: Path, paper_id: str, *, title: str, year: str = "2020",
         "ai_warnings": [],
     }
     (paper_dir / "literature_card.json").write_text(json.dumps(card), encoding="utf-8")
+
+
+def write_reading_blocks(library: Path, paper_id: str, blocks: list[dict]) -> None:
+    paper_dir = library / paper_id
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    doc = {"schema_version": "0.1.0", "paper_id": paper_id, "reading_blocks": blocks}
+    (paper_dir / "reading_blocks.json").write_text(json.dumps(doc), encoding="utf-8")
+
+
+def write_evidence_atoms(library: Path, paper_id: str, atoms: list[dict]) -> None:
+    paper_dir = library / paper_id
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    doc = {"schema_version": "0.1.0", "paper_id": paper_id, "evidence_atoms": atoms}
+    (paper_dir / "evidence_atoms.json").write_text(json.dumps(doc), encoding="utf-8")
+
+
+def write_paper_syntheses(library: Path, paper_id: str, syntheses: list[dict]) -> None:
+    paper_dir = library / paper_id
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    doc = {"schema_version": "0.1.0", "paper_id": paper_id, "paper_syntheses": syntheses}
+    (paper_dir / "paper_syntheses.json").write_text(json.dumps(doc), encoding="utf-8")
+
+
+def write_glossary(library: Path, paper_id: str, terms: list[dict]) -> None:
+    paper_dir = library / paper_id
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    doc = {"schema_version": "0.1.0", "paper_id": paper_id, "glossary": terms}
+    (paper_dir / "glossary.json").write_text(json.dumps(doc), encoding="utf-8")
