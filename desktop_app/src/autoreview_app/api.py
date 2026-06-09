@@ -8,6 +8,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .config import AppConfig
+from . import settings as app_settings
+from .packaging.installer_manifest import consent_summary
 from .decomposition import assemble_decomposition
 from .discovery.records import CitationRecord
 from .discovery.ris import parse_ris_text
@@ -50,6 +52,10 @@ class DraftCheckRequest(BaseModel):
 
 class DraftRequest(BaseModel):
     brief: dict[str, Any]
+
+
+class ApiKeyRequest(BaseModel):
+    api_key: str
 
 
 def _record_to_dict(rec: CitationRecord) -> dict[str, Any]:
@@ -156,6 +162,28 @@ def create_app(
         edges_path = config.edges_path or (config.library_dir.parent / "edges.json")
         cidx_path = config.concept_index_path or (config.library_dir.parent / "concept_index.json")
         return load_angles(edges_path, cidx_path)
+
+    @app.get("/settings/apikey")
+    def get_apikey() -> dict:
+        return {"configured": app_settings.has_api_key()}
+
+    @app.post("/settings/apikey")
+    def set_apikey(req: ApiKeyRequest) -> dict:
+        try:
+            app_settings.set_api_key(req.api_key)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"configured": True}
+
+    @app.delete("/settings/apikey")
+    def delete_apikey() -> dict:
+        if app_settings.has_api_key():
+            app_settings.clear_api_key()
+        return {"configured": False}
+
+    @app.get("/settings/setup-manifest")
+    def setup_manifest() -> dict[str, Any]:
+        return consent_summary()
 
     return app
 
