@@ -1,6 +1,6 @@
 # Auto Review
 
-Auto Review is a two-part literature workflow:
+Auto Review is a three-part literature workflow:
 
 ```text
 paper_pool
@@ -8,7 +8,11 @@ paper_pool
 
 Document_Decomposer
   -> PDF ingest, Docling conversion, reading blocks, literature cards,
-     evidence atoms, and article-internal syntheses
+     evidence atoms, and article-internal syntheses  (the engine)
+
+desktop_app
+  -> visual desktop app (local FastAPI + pywebview) that wraps the engine:
+     import, browse, decompose, cluster by group, and gated review drafting
 ```
 
 The main design rule is to keep intake, evidence extraction, and synthesis as
@@ -24,7 +28,9 @@ non-article files are kept as deferred records for later targeted work.
 ```text
 Auto_review
 +-- paper_pool
-+-- Document_Decomposer
++-- Document_Decomposer       (the engine)
++-- desktop_app               (visual app over the engine; see desktop_app/README.md)
++-- docs/superpowers          (desktop-app design + M1–M7 implementation plans)
 ```
 
 This repository is the main monorepo:
@@ -102,6 +108,24 @@ For a user-friendly menu, double-click:
 
 ```text
 Document_Decomposer\start_assistant.bat
+```
+
+## Desktop app
+
+`desktop_app/` is a visual app (local FastAPI service in a pywebview window) that
+wraps the engine without modifying it. Backend milestones **M1–M7 are built and
+merged**; the desktop test suite is **119 tests passing offline** (fake AI /
+network / keychain). The **pywebview window, the PyInstaller installer, and macOS
+signing are NOT verified** in CI — they need a real machine. See
+`desktop_app/README.md` (overview + API surface), `desktop_app/PACKAGING.md`
+(build/sign + on-machine checklist), and `docs/superpowers/` (design + M1–M7 plans).
+
+```powershell
+cd .\desktop_app
+py -m venv .venv
+.venv\Scripts\python -m pip install -e .
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pytest -q                # 119 passed (offline)
 ```
 
 ## Current Next Milestones

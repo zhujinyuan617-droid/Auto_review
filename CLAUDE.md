@@ -5,8 +5,9 @@
 
 ## 这是什么
 Auto_review:把论文 PDF 变成可溯源、可重组的综述写作素材底座。
-两个模块:`paper_pool`(入库/下载/去重)、`Document_Decomposer`(抽取→关联→出稿)。
-当前主战场:`Document_Decomposer` 的连接层与出稿。
+三个模块:`paper_pool`(入库/下载/去重)、`Document_Decomposer`(抽取→关联→出稿,引擎)、
+`desktop_app`(可视化桌面应用:本地 FastAPI + pywebview,**包裹引擎、不改引擎**)。
+`desktop_app` 后端 M1–M7 已建成并合并(状态见 `desktop_app/README.md`);引擎本身仍是核心。
 
 ## 开工前必读(按序)
 1. 本文件(规则)
@@ -26,6 +27,10 @@ Auto_review:把论文 PDF 变成可溯源、可重组的综述写作素材底座
 | `Document_Decomposer/README.md` | Document_Decomposer 人类向导览 |
 | `Document_Decomposer/DOCLING_INSTALL.md` | Docling 环境搭建 |
 | `README.md`(根) | 仓库总导览(人类向) |
+| `desktop_app/HANDOFF.md` | 桌面应用接手入口(给新/压缩会话):状态、git 现状、架构、遗留、坑 |
+| `desktop_app/README.md` | 桌面应用总览 + 状态 + 接口面 ← **desktop_app 的唯一状态源** |
+| `desktop_app/PACKAGING.md` | 桌面应用打包/签名步骤 + 上机验证清单(标注未验证项) |
+| `docs/superpowers/`(specs+plans) | 桌面应用设计文档 + M1–M7 逐里程碑实现计划(设计/路线记录) |
 | 自动记忆 `memory/`(MEMORY.md 索引) | 耐久已核实事实 + 指针 |
 | `paper_pool/README.md`、`paper_pool/AI_GUIDE.md` | paper_pool 模块(**当前只登记,不在本轮维护**) |
 | `font-fallback-fix/`(非本项目产物) | **不归我们管,不读不改** |
@@ -34,6 +39,7 @@ Auto_review:把论文 PDF 变成可溯源、可重组的综述写作素材底座
 - 遇到任何问题/异常 → **先翻 `ISSUES.md`**(可能已知,别重复踩)
 - 不清楚现状/刚接手 → `HANDOFF.md` → `CONNECTION_PLAN.md`
 - 要改抽取管线 / 卡片逻辑 → `AI_GUIDE.md`
+- 要动桌面 app(接口/前后端)→ `desktop_app/README.md`;打包/签名 → `desktop_app/PACKAGING.md`
 - 要 commit / 动 git → 见下「git 规则」
 - 要写/改 md 或记忆 → 见下「写改 md」「改记忆」
 
