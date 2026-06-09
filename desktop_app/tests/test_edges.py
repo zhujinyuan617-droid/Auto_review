@@ -29,3 +29,12 @@ def test_malformed_file_returns_empty_graph(tmp_path: Path):
     path = tmp_path / "edges.json"
     path.write_text("not json", encoding="utf-8")
     assert load_edges(path) == {"edges": [], "relation_counts": {}, "n_edges": 0}
+
+
+def test_empty_graph_is_an_independent_copy(tmp_path: Path):
+    # Mutating one empty graph must not poison the next call's result.
+    g1 = load_edges(tmp_path / "missing.json")
+    g1["edges"].append("sentinel")
+    g1["relation_counts"]["x"] = 1
+    g2 = load_edges(tmp_path / "missing.json")
+    assert g2 == {"edges": [], "relation_counts": {}, "n_edges": 0}
