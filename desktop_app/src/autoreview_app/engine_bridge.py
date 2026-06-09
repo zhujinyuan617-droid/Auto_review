@@ -15,6 +15,14 @@ if not ENGINE_SRC.is_dir():
 if str(ENGINE_SRC) not in sys.path:
     sys.path.insert(0, str(ENGINE_SRC))
 
+ENGINE_SCRIPTS = Path(__file__).resolve().parents[3] / "Document_Decomposer" / "scripts"
+if not ENGINE_SCRIPTS.is_dir():
+    raise RuntimeError(
+        f"Engine scripts not found at {ENGINE_SCRIPTS}; expected Document_Decomposer/scripts"
+    )
+if str(ENGINE_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(ENGINE_SCRIPTS))
+
 from docdecomp.package_builder import build_clean_package  # noqa: E402
 
 from .extract.base import PdfExtractor
