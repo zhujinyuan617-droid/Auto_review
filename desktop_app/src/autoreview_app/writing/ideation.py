@@ -10,7 +10,11 @@ engine_bridge.ensure_engine_use_on_path()  # adds Document_Decomposer/scripts/us
 
 import propose_angles as _angles  # engine module (now importable)  # noqa: E402
 
-_EMPTY: dict[str, list] = {"tension": [], "gaps": [], "synthesis": []}
+
+def _empty_angles() -> dict[str, Any]:
+    # Fresh literals each call: a shared constant would be poisoned if a caller
+    # mutated the returned tension/gaps/synthesis lists.
+    return {"tension": [], "gaps": [], "synthesis": []}
 
 
 def propose_candidate_angles(edges: list[dict[str, Any]], cidx: dict[str, Any]) -> dict[str, Any]:
@@ -39,5 +43,5 @@ def load_angles(edges_path: Path, concept_index_path: Path) -> dict[str, Any]:
     if not isinstance(cidx, dict):
         cidx = {}
     if not edges and not cidx:
-        return dict(_EMPTY)
+        return _empty_angles()
     return propose_candidate_angles(edges, cidx)

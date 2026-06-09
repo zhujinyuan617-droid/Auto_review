@@ -38,3 +38,19 @@ def test_load_angles_reads_files(tmp_path: Path):
 def test_load_angles_missing_files_empty(tmp_path: Path):
     out = load_angles(tmp_path / "nope.json", tmp_path / "nada.json")
     assert out == {"tension": [], "gaps": [], "synthesis": []}
+
+
+def test_empty_angles_is_independent_copy(tmp_path: Path):
+    # Mutating one empty result must not poison the next call.
+    a = load_angles(tmp_path / "x.json", tmp_path / "y.json")
+    a["tension"].append("sentinel")
+    b = load_angles(tmp_path / "x.json", tmp_path / "y.json")
+    assert b == {"tension": [], "gaps": [], "synthesis": []}
+
+
+def test_malformed_files_degrade_to_empty(tmp_path: Path):
+    edges_path = tmp_path / "edges.json"
+    edges_path.write_text("not json", encoding="utf-8")
+    cidx_path = tmp_path / "concept_index.json"
+    cidx_path.write_text("[1, 2, 3]", encoding="utf-8")  # valid json, wrong type
+    assert load_angles(edges_path, cidx_path) == {"tension": [], "gaps": [], "synthesis": []}
