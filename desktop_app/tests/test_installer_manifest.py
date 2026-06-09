@@ -13,4 +13,5 @@ def test_consent_summary_lists_deps_and_requires_consent():
     summary = consent_summary()
     assert summary["consent_required"] is True
     assert len(summary["will_install"]) == len(bundled_dependencies())
-    assert "docling" in summary["optional_later"].lower() or summary["optional_later"]
+    assert "docling" in summary["optional_later"].lower()
+    assert summary["note"]

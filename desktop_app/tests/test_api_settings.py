@@ -34,6 +34,12 @@ def test_apikey_lifecycle_never_leaks_key(tmp_path: Path):
     assert client.get("/settings/apikey").json() == {"configured": False}
 
 
+def test_blank_apikey_returns_400(tmp_path: Path):
+    resp = _client(tmp_path).post("/settings/apikey", json={"api_key": "   "})
+    assert resp.status_code == 400
+    assert _client(tmp_path).get("/settings/apikey").json() == {"configured": False}
+
+
 def test_setup_manifest_endpoint(tmp_path: Path):
     body = _client(tmp_path).get("/settings/setup-manifest").json()
     assert body["consent_required"] is True
