@@ -37,6 +37,19 @@ def ensure_engine_scripts_on_path() -> None:
         sys.path.insert(0, str(ENGINE_SCRIPTS))
 
 
+ENGINE_WRITE = ENGINE_SRC.parent / "scripts" / "write"
+
+
+def ensure_engine_write_on_path() -> None:
+    """Put the engine's scripts/write dir on sys.path (lazy; only writing code needs it)."""
+    if not ENGINE_WRITE.is_dir():
+        raise RuntimeError(
+            f"Engine write scripts not found at {ENGINE_WRITE}; expected Document_Decomposer/scripts/write"
+        )
+    if str(ENGINE_WRITE) not in sys.path:
+        sys.path.insert(0, str(ENGINE_WRITE))
+
+
 def _slug(stem: str) -> str:
     # Cosmetic only: the engine parses the paper id from the "S<n>_" filename
     # prefix, not from this slug. Kept short for tidy filenames.
