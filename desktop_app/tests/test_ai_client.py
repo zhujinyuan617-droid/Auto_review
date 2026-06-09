@@ -11,5 +11,6 @@ def test_build_ai_client_from_env(monkeypatch, tmp_path: Path):
     client = build_ai_client(config_root=tmp_path)
 
     assert client.config.base_url == "http://fake.local"
+    assert client.config.api_key == "fake-key"
     assert client.config.model == "fake-model"
     assert hasattr(client, "chat_json")

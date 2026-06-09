@@ -15,18 +15,26 @@ if not ENGINE_SRC.is_dir():
 if str(ENGINE_SRC) not in sys.path:
     sys.path.insert(0, str(ENGINE_SRC))
 
-ENGINE_SCRIPTS = Path(__file__).resolve().parents[3] / "Document_Decomposer" / "scripts"
-if not ENGINE_SCRIPTS.is_dir():
-    raise RuntimeError(
-        f"Engine scripts not found at {ENGINE_SCRIPTS}; expected Document_Decomposer/scripts"
-    )
-if str(ENGINE_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(ENGINE_SCRIPTS))
-
 from docdecomp.package_builder import build_clean_package  # noqa: E402
 
 from .extract.base import PdfExtractor
 from .paper_ids import allocate_paper_id
+
+# The engine's CLI scripts dir (Document_Decomposer/scripts) holds some helpers
+# (e.g. ai_organize_sections) the AI stages import. Adding ~18 script modules to
+# sys.path is a side effect only the stage code needs, so it is LAZY: callers
+# invoke ensure_engine_scripts_on_path() right before importing a script module,
+# rather than failing at engine_bridge import time when no consumer needs it.
+ENGINE_SCRIPTS = ENGINE_SRC.parent / "scripts"
+
+
+def ensure_engine_scripts_on_path() -> None:
+    if not ENGINE_SCRIPTS.is_dir():
+        raise RuntimeError(
+            f"Engine scripts not found at {ENGINE_SCRIPTS}; expected Document_Decomposer/scripts"
+        )
+    if str(ENGINE_SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(ENGINE_SCRIPTS))
 
 
 def _slug(stem: str) -> str:
