@@ -12,6 +12,8 @@ from .discovery.records import CitationRecord
 from .discovery.ris import parse_ris_text
 from .jobs import JobRegistry
 from .library_index import list_papers
+from .network.edges import load_edges
+from .store.sqlite_index import get_paper, query_papers, reindex
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -85,6 +87,25 @@ def create_app(
         if search_runner is None:
             raise HTTPException(status_code=503, detail="search not configured")
         return {"records": search_runner(req.query)}
+
+    @app.get("/library/papers")
+    def library_papers() -> dict:
+        reindex(config.library_dir, config.index_db)
+        return {"papers": query_papers(config.index_db)}
+
+    @app.get("/papers/{paper_id}")
+    def paper_detail(paper_id: str) -> dict[str, Any]:
+        reindex(config.library_dir, config.index_db)
+        paper = get_paper(config.index_db, paper_id)
+        if paper is None:
+            raise HTTPException(status_code=404, detail="unknown paper")
+        return paper
+
+    @app.get("/network")
+    def network() -> dict[str, Any]:
+        if config.edges_path is None:
+            return {"edges": [], "relation_counts": {}, "n_edges": 0}
+        return load_edges(config.edges_path)
 
     return app
 

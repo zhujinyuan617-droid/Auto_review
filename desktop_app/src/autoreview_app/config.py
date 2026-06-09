@@ -13,10 +13,15 @@ class AppConfig:
     """Runtime configuration for the desktop app."""
 
     library_dir: Path
+    edges_path: Path | None = None
+
+    @property
+    def index_db(self) -> Path:
+        """SQLite browse index, kept beside the library dir."""
+        return self.library_dir.parent / "index.db"
 
     @classmethod
     def from_env(cls) -> "AppConfig":
         raw = os.environ.get(ENV_LIBRARY_DIR)
-        if raw:
-            return cls(library_dir=Path(raw))
-        return cls(library_dir=Path.cwd() / DEFAULT_LIBRARY_DIRNAME)
+        library = Path(raw) if raw else Path.cwd() / DEFAULT_LIBRARY_DIRNAME
+        return cls(library_dir=library)
