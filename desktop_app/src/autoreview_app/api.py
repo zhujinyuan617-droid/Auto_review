@@ -8,6 +8,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .config import AppConfig
+from .discovery.records import CitationRecord
+from .discovery.ris import parse_ris_text
 from .jobs import JobRegistry
 from .library_index import list_papers
 
@@ -16,12 +18,34 @@ FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 # An import runner takes (pdf_path, progress_callback) and returns the new paper id.
 ImportRunner = Callable[[Path, Callable[[str], None]], str]
 
+# A search runner takes a query string and returns a list of record dicts.
+SearchRunner = Callable[[str], list[dict[str, Any]]]
+
 
 class ImportRequest(BaseModel):
     pdf_path: str
 
 
-def create_app(config: AppConfig, import_runner: ImportRunner | None = None) -> FastAPI:
+class RisRequest(BaseModel):
+    text: str
+
+
+class SearchRequest(BaseModel):
+    query: str
+
+
+def _record_to_dict(rec: CitationRecord) -> dict[str, Any]:
+    return {
+        "title": rec.title, "doi": rec.doi, "year": rec.year,
+        "journal": rec.journal, "authors": list(rec.authors), "pdf_url": rec.pdf_url,
+    }
+
+
+def create_app(
+    config: AppConfig,
+    import_runner: ImportRunner | None = None,
+    search_runner: SearchRunner | None = None,
+) -> FastAPI:
     app = FastAPI(title="Auto Review Desktop", version="0.1.0")
     jobs = JobRegistry()
     runner = import_runner if import_runner is not None else _default_import_runner(config)
@@ -50,6 +74,17 @@ def create_app(config: AppConfig, import_runner: ImportRunner | None = None) -> 
         if status is None:
             raise HTTPException(status_code=404, detail="unknown job")
         return status
+
+    @app.post("/discovery/import-ris")
+    def import_ris(req: RisRequest) -> dict:
+        records = parse_ris_text(req.text)
+        return {"records": [_record_to_dict(r) for r in records]}
+
+    @app.post("/discovery/search")
+    def search(req: SearchRequest) -> dict:
+        if search_runner is None:
+            raise HTTPException(status_code=503, detail="search not configured")
+        return {"records": search_runner(req.query)}
 
     return app
 
