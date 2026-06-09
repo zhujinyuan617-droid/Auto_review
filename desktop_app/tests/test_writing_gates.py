@@ -11,7 +11,7 @@ def test_bare_paper_id_fails_citation_gate():
     draft = "Methane adsorption increases with pressure S09."
     result = check_draft(draft)
     assert result["citation"]["passed"] is False
-    assert "S09" in " ".join(result["citation"]["bare_paper_ids"]) or result["citation"]["bare_paper_ids"]
+    assert any("S09" in str(x) for x in result["citation"]["bare_paper_ids"])
 
 
 def test_adjacent_citation_blocks_fail():
