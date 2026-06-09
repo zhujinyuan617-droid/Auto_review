@@ -4,7 +4,6 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Protocol
 
 # engine_bridge.py lives at desktop_app/src/autoreview_app/engine_bridge.py.
 # parents[3] is the repo root; the engine source is Document_Decomposer/src.
@@ -18,17 +17,13 @@ if str(ENGINE_SRC) not in sys.path:
 
 from docdecomp.package_builder import build_clean_package  # noqa: E402
 
+from .extract.base import PdfExtractor
 from .paper_ids import allocate_paper_id
 
 
-class _Extractor(Protocol):
-    name: str
-
-    def extract(self, pdf_path: Path) -> dict[str, Any]:
-        ...
-
-
 def _slug(stem: str) -> str:
+    # Cosmetic only: the engine parses the paper id from the "S<n>_" filename
+    # prefix, not from this slug. Kept short for tidy filenames.
     cleaned = re.sub(r"[^A-Za-z0-9]+", "_", stem).strip("_")
     return cleaned[:40].strip("_") or "paper"
 
@@ -37,7 +32,7 @@ def build_package_from_pdf(
     pdf_path: Path,
     library_dir: Path,
     docling_json_dir: Path,
-    extractor: _Extractor,
+    extractor: PdfExtractor,
 ) -> str:
     """PDF -> Docling JSON (via extractor) -> engine clean package. Returns paper id.
 
@@ -52,4 +47,9 @@ def build_package_from_pdf(
     json_path.write_text(json.dumps(docling, ensure_ascii=False), encoding="utf-8")
 
     result = build_clean_package(json_path, None, library_dir)
+    # The engine derives the id from the filename; it must equal what we allocated.
+    assert result.paper_id == paper_id, (
+        f"engine returned {result.paper_id!r} but allocated {paper_id!r} "
+        f"(json filename {json_path.name!r})"
+    )
     return result.paper_id

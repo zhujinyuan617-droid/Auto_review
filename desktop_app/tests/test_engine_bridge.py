@@ -41,8 +41,15 @@ def test_second_import_gets_next_id(tmp_path: Path):
     first = make_pdf(tmp_path / "a.pdf", ["First paper text."])
     second = make_pdf(tmp_path / "b.pdf", ["Second paper text."])
 
-    id1 = build_package_from_pdf(pdf_path=first, library_dir=library, docling_json_dir=docling_dir, extractor=PyMuPDFExtractor())
-    id2 = build_package_from_pdf(pdf_path=second, library_dir=library, docling_json_dir=docling_dir, extractor=PyMuPDFExtractor())
+    id1 = build_package_from_pdf(
+        pdf_path=first, library_dir=library, docling_json_dir=docling_dir, extractor=PyMuPDFExtractor()
+    )
+    id2 = build_package_from_pdf(
+        pdf_path=second, library_dir=library, docling_json_dir=docling_dir, extractor=PyMuPDFExtractor()
+    )
 
     assert id1 == "S1"
     assert id2 == "S2"
+
+    s2 = json.loads((library / "S2" / "content_blocks.json").read_text(encoding="utf-8"))
+    assert "Second paper text." in " ".join(b.get("text", "") for b in s2["blocks"])
