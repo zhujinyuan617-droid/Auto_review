@@ -41,4 +41,8 @@ class JobRegistry:
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._lock:
             job = self._jobs.get(job_id)
-            return dict(job) if job is not None else None
+            if job is None:
+                return None
+            # Copy the dict AND the mutable progress list, so the snapshot is stable
+            # and callers can't mutate live registry state.
+            return {**job, "progress": list(job["progress"])}
