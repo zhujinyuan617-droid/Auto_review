@@ -2,6 +2,11 @@
 __pycache__/
 *.py[cod]
 
+# Python build / editable-install artifacts
+*.egg-info/
+dist/
+build/
+
 # Virtual environments and local runtimes
 .venv/
 venv/
