@@ -1,6 +1,10 @@
 # PyInstaller spec for the Auto Review desktop app.
 # Build on the target OS:  pyinstaller packaging/autoreview.spec
 # NOTE: not verified in CI; run on a real Windows/macOS machine with a display.
+# On-machine TODO before a real build:
+#   - PyInstaller >= 6 removed `block_cipher`; delete it + the `cipher=` args.
+#   - macOS: wrap with `app = BUNDLE(coll, name="AutoReview.app", ...)` to get a
+#     signable .app (the EXE/COLLECT below yields a Windows-style folder).
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
 
