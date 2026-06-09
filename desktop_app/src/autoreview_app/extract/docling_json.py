@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-# A "text item" is a plain dict: {"page_no": int, "text": str, "bbox": dict}.
-# This module shapes a list of them into the minimal Docling-compatible JSON
-# that the engine's build_clean_package consumes. Pure data; no I/O, no fitz.
+# A "text item" is a plain dict with REQUIRED keys {"page_no": int, "text": str,
+# "bbox": dict}; the caller must supply all three (a missing key is a caller bug).
+# This module shapes a list of them into a Docling-compatible JSON that the
+# engine's build_clean_package consumes. Pure data; no I/O, no fitz.
+#
+# Two fields the engine does NOT read are kept on purpose so the output stays
+# faithful to real Docling export: `schema_name` (document marker) and per-item
+# `self_ref`. Keeping them means a real Docling loader / downstream tool would
+# see the same shape. `label` is always "text" here because the caller feeds
+# flat body paragraphs; section/heading typing is the AI `sections` stage's job
+# (M2b), not this shaping step.
 
 
 def build_docling_json(
