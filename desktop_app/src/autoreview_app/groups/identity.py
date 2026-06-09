@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 import re
+import unicodedata
+
+
+def _ascii_fold(value: str) -> str:
+    """Fold accents to ASCII (Müller -> Muller) so accented names key the same."""
+    decomposed = unicodedata.normalize("NFD", value)
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
 
 
 def _parts(name: str) -> tuple[str, str]:
@@ -21,17 +28,20 @@ def author_identity(name: str) -> str:
     """A coarse identity key: lowercased family name + first given initial.
 
     Coarse on purpose — it merges 'Smith, John' / 'J Smith' / 'Smith, J.'.
-    A stronger key (ORCID/OpenAlex id) would be preferred when available; this
-    is the name-only fallback. Returns "" for an empty/blank name.
+    Accents are folded (Müller -> muller). A stronger key (ORCID/OpenAlex id)
+    is preferred when available; this is the name-only fallback. Known limits:
+    it cannot tell two distinct 'Smith, J' apart, and a comma-less East-Asian
+    name written family-first (e.g. 'Wang Li') is read as given-first. Returns
+    "" for an empty/blank name.
     """
     family, given = _parts(name)
-    family_key = re.sub(r"[^a-z]", "", family.lower())
+    family_key = re.sub(r"[^a-z]", "", _ascii_fold(family).lower())
     if not family_key:
         return ""
     initial = ""
     given = given.strip()
     if given:
-        first_alpha = re.sub(r"[^a-z]", "", given.lower())
+        first_alpha = re.sub(r"[^a-z]", "", _ascii_fold(given).lower())
         initial = first_alpha[:1]
     return f"{family_key}_{initial}" if initial else family_key
 

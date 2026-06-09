@@ -16,6 +16,14 @@ def test_empty_identity():
     assert author_identity("   ") == ""
 
 
+def test_identity_folds_accents():
+    assert author_identity("Müller, Hans") == author_identity("Muller, Hans") == "muller_h"
+
+
+def test_single_token_name_has_no_initial():
+    assert author_identity("Zhang") == "zhang"
+
+
 def test_anchor_is_last_author():
     assert anchor_author(["First, A", "Middle, B", "Senior, C"]) == "Senior, C"
 
