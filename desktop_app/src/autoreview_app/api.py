@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .config import AppConfig
+from .decomposition import assemble_decomposition
 from .discovery.records import CitationRecord
 from .discovery.ris import parse_ris_text
 from .jobs import JobRegistry
@@ -102,6 +103,13 @@ def create_app(
         if paper is None:
             raise HTTPException(status_code=404, detail="unknown paper")
         return paper
+
+    @app.get("/papers/{paper_id}/decomposition")
+    def paper_decomposition(paper_id: str) -> dict[str, Any]:
+        paper_dir = config.library_dir / paper_id
+        if not paper_dir.is_dir():
+            raise HTTPException(status_code=404, detail="unknown paper")
+        return assemble_decomposition(paper_dir)
 
     @app.get("/network")
     def network() -> dict[str, Any]:
