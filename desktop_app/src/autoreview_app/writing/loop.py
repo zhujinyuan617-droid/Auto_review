@@ -43,6 +43,8 @@ def run_writing_round(
     draft_text = _wl.read_text(draft_path)
     gate_result = _wl.mechanical_gates(brief, draft_text, draft_obj)
     _wl.write_json(run_dir / f"mechanical_gates_{round_label}.json", gate_result)
+    _wl.write_json(run_dir / f"evidence_gate_{round_label}.json", gate_result["evidence"])
+    _wl.write_json(run_dir / f"style_gate_{round_label}.json", gate_result["style"])
 
     active_obj, active_path, active_gate = draft_obj, draft_path, gate_result
     if _wl.is_citation_only_failure(gate_result):
@@ -50,8 +52,10 @@ def run_writing_round(
             author_client, run_dir, round_label, brief, draft_obj, gate_result,
         )
 
+    review_path = run_dir / f"reviews_{round_label}.json"
     if not active_gate.get("passed"):
         reviews: list[dict[str, Any]] = []
+        _wl.write_json(review_path, {"reviews": reviews, "skipped": True, "reason": "mechanical_gates_failed"})
         decision = _wl.mechanical_revision_plan(active_gate)
         decision.setdefault("gate_decision", "continue")
     else:
@@ -59,8 +63,11 @@ def run_writing_round(
             expert_client, run_dir, round_index, brief,
             _wl.read_text(active_path), active_obj, active_gate,
         )
+        _wl.write_json(review_path, {"reviews": reviews})
         decision = _wl.build_revision_plan(expert_client, run_dir, round_index, reviews)
         decision["gate_decision"] = _wl.decide_gate(reviews)
+        # Engine fidelity: tell the next round which claims experts rejected.
+        decision["forbidden_claims_next_round"] = _wl.forbidden_claims_from_reviews(reviews)
 
     _wl.write_json(run_dir / f"decision_{round_label}.json", decision)
     return {"decision": decision, "draft_path": str(active_path), "reviews": reviews}
