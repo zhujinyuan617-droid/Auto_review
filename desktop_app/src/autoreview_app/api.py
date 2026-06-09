@@ -18,6 +18,7 @@ from .groups.cluster import cluster_papers
 from .groups.store import load_authors
 from .store.sqlite_index import get_paper, query_papers, reindex
 from .writing.gates import check_draft
+from .writing.ideation import load_angles
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -147,6 +148,14 @@ def create_app(
             raise HTTPException(status_code=503, detail="draft runner not configured")
         job_id = jobs.submit(lambda report: draft_runner(req.brief, report))
         return {"job_id": job_id}
+
+    @app.get("/writing/angles")
+    def writing_angles() -> dict[str, Any]:
+        if config.edges_path is None and config.concept_index_path is None:
+            return {"tension": [], "gaps": [], "synthesis": []}
+        edges_path = config.edges_path or (config.library_dir.parent / "edges.json")
+        cidx_path = config.concept_index_path or (config.library_dir.parent / "concept_index.json")
+        return load_angles(edges_path, cidx_path)
 
     return app
 

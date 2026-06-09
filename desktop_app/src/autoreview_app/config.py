@@ -14,6 +14,7 @@ class AppConfig:
 
     library_dir: Path
     edges_path: Path | None = None
+    concept_index_path: Path | None = None
 
     @property
     def index_db(self) -> Path:
