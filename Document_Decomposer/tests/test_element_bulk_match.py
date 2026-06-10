@@ -251,3 +251,27 @@ def test_bulk_match_failed_chunk_left_unresolved(tmp_path: Path):
     d1 = json.loads((p1 / "elements.json").read_text(encoding="utf-8"))
     assert d1["occurrences"][0]["canonical_id"] is None      # 留空待重试
     assert stats["created"] == 0 and stats["judge_failed_chunks"] >= 1
+
+
+def test_bulk_match_mixed_failure_does_not_block_success(tmp_path: Path):
+    from docdecomp.element_matching import bulk_match_elements
+
+    class _FacetBoomClient:
+        """material 块炸,其他块正常返回空 matches(全 create)。"""
+        def chat_json(self, messages, hint):
+            if '"facet": "material"' in messages[1]["content"]:
+                raise RuntimeError("429")
+            return {"matches": []}
+
+    reg = new_registry_from_seeds(SEEDS)
+    p1 = tmp_path / "S01"
+    _write_elements(p1, [
+        _occ("material", "kerogen type II"),          # 所在块会炸 → 留 None
+        _occ("condition", "in-situ high pressure cell xyz"),  # 正常块 → create
+    ])
+    stats = bulk_match_elements([p1], reg, _FacetBoomClient(), tmp_path / "log.jsonl", parallel=2)
+    d1 = json.loads((p1 / "elements.json").read_text(encoding="utf-8"))
+    ids = {o["surface"]: o["canonical_id"] for o in d1["occurrences"]}
+    assert ids["kerogen type II"] is None             # 失败块不挡
+    assert ids["in-situ high pressure cell xyz"] is not None  # 成功块照常落账
+    assert stats["judge_failed_chunks"] == 1 and stats["created"] == 1

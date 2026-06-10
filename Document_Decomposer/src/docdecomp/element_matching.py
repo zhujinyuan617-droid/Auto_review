@@ -235,6 +235,7 @@ def bulk_match_elements(
     the single-writer rule stands. Caller still owns save_registry + build_index
     (现有调用点的两行不动)。proposed:* facets never go to AI(直接 create)。
     resolved_exact 由 collect 阶段就地完成,此处不计数(看 papers_written)。
+    resolved_exact 恒为 0(exact 命中在 collect 阶段就地完成,此字段仅保持 stats 形状),groups_total = 本轮生面孔组数。
     """
     docs, dirty, groups = collect_unresolved(paper_dirs, registry)
     stats = {
