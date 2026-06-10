@@ -14,7 +14,9 @@
     {"id": "material", "name_zh": "材料/对象", "name_en": "materials & objects",
      "description": "Materials, minerals, fluids and systems studied: montmorillonite, kaolinite, illite, shale, kerogen, coal, CH4, CO2, H2O, slit pores."},
     {"id": "condition", "name_zh": "条件", "name_en": "experimental/simulation conditions",
-     "description": "Numeric operating conditions: temperature, pressure range, moisture/water content, salinity, milling time, pore size. Quote must contain the numbers."}
+     "description": "Numeric operating conditions: temperature, pressure range, moisture/water content, salinity, milling time, pore size. Quote must contain the numbers."},
+    {"id": "finding", "name_zh": "发现", "name_en": "findings & conclusions",
+     "description": "Conclusions THIS paper itself establishes: directional effects (e.g. water reduces CH4 adsorption), measured outcomes, demonstrated mechanisms. The quote must contain the concluding statement. Findings restated from other papers belong to role=mentioned."}
   ],
   "synonyms": {
     "characterization": {

@@ -40,7 +40,11 @@ _SYSTEM = (
     "and set proposed_facet to a short English category name.\n"
     "5. Be exhaustive on methods/characterization/simulation/conditions; list each "
     "distinct element once per role (pick its clearest quote).\n"
-    "6. Output strictly the JSON schema; no Markdown."
+    "6. facet='finding': report ONLY conclusions this paper itself establishes (directional "
+    "effects, measured outcomes, demonstrated mechanisms). surface = a short declarative "
+    "noun phrase (e.g. 'water reduces methane adsorption capacity'). The quote must contain "
+    "the concluding statement verbatim. A review restating another paper's findings -> role='mentioned'.\n"
+    "7. Output strictly the JSON schema; no Markdown."
 )
 
 

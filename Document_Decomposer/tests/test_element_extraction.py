@@ -81,3 +81,39 @@ def test_elements_not_a_list_yields_empty(tmp_path: Path):
     client = SequencedFakeClient([{"paper_id": "S90", "elements": {"oops": True}}])
     result = run_element_extraction(paper_dir, client, SEEDS)
     assert result["occurrences"] == [] and result["dropped"] == []
+
+
+def test_prompt_lists_finding_facet(tmp_path: Path):
+    paper_dir = write_reading_blocks(tmp_path, "S90")
+    reading = json.loads((paper_dir / "reading_blocks.json").read_text(encoding="utf-8"))
+    messages = build_elements_prompt(reading, SEEDS)
+    joined = json.dumps(messages, ensure_ascii=False)
+    # '"finding"' checked in the user-message content directly (json.dumps double-escapes inner quotes)
+    assert '"finding"' in messages[1]["content"]  # facet 定义随 seeds 进入 prompt
+    assert "conclusions this paper itself establishes" in joined.lower() or "finding" in messages[0]["content"]
+
+
+def test_finding_facet_extracted_with_quote(tmp_path: Path):
+    blocks = [("S90-RB-0001", "Our results demonstrate that water content strongly reduces methane adsorption capacity in montmorillonite.", "conclusion")]
+    paper_dir = write_reading_blocks(tmp_path, "S90", blocks)
+    client = SequencedFakeClient([{"paper_id": "S90", "elements": [
+        {"facet": "finding", "surface": "water reduces methane adsorption capacity",
+         "quote": "water content strongly reduces methane adsorption capacity",
+         "reading_block_id": "S90-RB-0001", "role": "used"},
+    ]}])
+    result = run_element_extraction(paper_dir, client, SEEDS)
+    occ = result["occurrences"]
+    assert len(occ) == 1 and occ[0]["facet"] == "finding" and occ[0]["quote_verified"] is True
+
+
+def test_finding_fabricated_quote_dropped(tmp_path: Path):
+    blocks = [("S90-RB-0001", "Our results demonstrate that water content strongly reduces methane adsorption capacity.", "conclusion")]
+    paper_dir = write_reading_blocks(tmp_path, "S90", blocks)
+    client = SequencedFakeClient([{"paper_id": "S90", "elements": [
+        {"facet": "finding", "surface": "pressure increases adsorption",
+         "quote": "higher pressure monotonically increases total adsorption",
+         "reading_block_id": "S90-RB-0001", "role": "used"},
+    ]}])
+    result = run_element_extraction(paper_dir, client, SEEDS)
+    assert result["occurrences"] == []
+    assert result["dropped"][0]["reason"] == "quote_not_found"
