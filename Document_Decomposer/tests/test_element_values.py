@@ -21,3 +21,20 @@ def test_decimal_and_rpm_and_hours():
 
 def test_no_number_returns_empty():
     assert parse_values("under nitrogen atmosphere") == []
+
+
+def test_negative_number_is_skipped_not_flipped():
+    assert parse_values("samples were cooled to -10 °C overnight") == []
+
+
+def test_label_h_false_positive_is_known_and_bounded():
+    # Known accepted FP: "Table 4 h" may yield an 'h' value; the real value must
+    # still be extracted and the caller's condition-facet gate bounds the damage.
+    vals = parse_values("see Table 4 h for details at 400 rpm")
+    units = {v["unit"] for v in vals}
+    assert "rpm" in units
+
+
+def test_no_space_between_number_and_unit():
+    vals = parse_values("pressures up to 25MPa were applied")
+    assert vals and vals[0]["unit"] == "MPa" and vals[0]["num"] == "25"
