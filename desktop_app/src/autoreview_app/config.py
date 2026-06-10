@@ -44,6 +44,11 @@ class AppConfig:
         return self.elements_data_dir / "registry_log.jsonl"
 
     @property
+    def app_settings_path(self) -> Path:
+        """Plain-JSON app settings (e.g. AI parallelism), kept beside the library dir."""
+        return self.library_dir.parent / "app_settings.json"
+
+    @property
     def institutions_data_dir(self) -> Path:
         """Institution registry + log live under <root>/data/institutions (long-lived state)."""
         return self.library_dir.parent / "data" / "institutions"

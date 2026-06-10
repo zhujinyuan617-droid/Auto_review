@@ -92,6 +92,11 @@ class ApiKeyRequest(BaseModel):
     api_key: str
 
 
+class ParallelRequest(BaseModel):
+    flash: int
+    pro: int
+
+
 class ElementsQuery(BaseModel):
     element_ids: list[str]
     role: str = "used"
@@ -234,6 +239,19 @@ def create_app(
         if app_settings.has_api_key():
             app_settings.clear_api_key()
         return {"configured": False}
+
+    @app.get("/settings/parallel")
+    def get_parallel_settings() -> dict[str, Any]:
+        values = app_settings.get_parallel(config.app_settings_path)
+        return {**values, "limits": app_settings.PARALLEL_LIMITS}
+
+    @app.put("/settings/parallel")
+    def put_parallel_settings(req: ParallelRequest) -> dict[str, Any]:
+        try:
+            stored = app_settings.set_parallel(config.app_settings_path, req.flash, req.pro)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {**stored, "limits": app_settings.PARALLEL_LIMITS}
 
     @app.get("/settings/setup-manifest")
     def setup_manifest() -> dict[str, Any]:
@@ -420,7 +438,9 @@ def _default_bootstrap_runner(config: AppConfig) -> BootstrapRunner:
     def run(report: Callable[[str], None]) -> dict[str, Any]:
         from .ai.client import build_ai_client
         client = build_ai_client(elements_service.engine_root())
-        return elements_service.run_bootstrap(config, client, report, parallel=6)  # 显式声明并行度——统计屏"1–2 小时"文案押在这上面
+        # 并行度来自设置页(按所用模型的档位取值;flash/pro 上限见 settings.PARALLEL_LIMITS)
+        parallel = app_settings.parallel_for_model(config.app_settings_path, client.config.model)
+        return elements_service.run_bootstrap(config, client, report, parallel=parallel)
     return run
 
 
