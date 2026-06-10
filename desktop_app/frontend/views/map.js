@@ -332,22 +332,6 @@ export async function render(view) {
       ctx.stroke();
       ctx.fill();
     }
-    // 区名标签:区在屏幕上太小则不画(悬停时以 tooltip 显示)
-    for (const c of S.clusters) {
-      if (!c._hull) continue;
-      const { cx, cy, area } = hullStats(c._hull);
-      const hovered = S.hover && S.hover.type === "cluster" && S.hover.cluster === c;
-      if (area > 6000 || hovered) {
-        ctx.font = "600 13px 'Segoe UI','Microsoft YaHei',sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.lineWidth = 3.5;
-        ctx.strokeStyle = "rgba(255,255,255,0.85)";
-        ctx.strokeText(c.label, cx, cy);
-        ctx.fillStyle = shade(c.color || GREY);
-        ctx.fillText(c.label, cx, cy);
-      }
-    }
     // 点
     for (const n of S.nodes) {
       const x = SX(n.x), y = SY(n.y);
@@ -371,6 +355,33 @@ export async function render(view) {
         ctx.strokeStyle = ACCENT;
         ctx.stroke();
       }
+    }
+    // 区名标签:画在点之上(否则被点淹没);字号随区规模;大区优先,碰撞则小区让位
+    const drawn = [];
+    const byArea = S.clusters
+      .filter((c) => c._hull)
+      .map((c) => ({ c, ...hullStats(c._hull) }))
+      .sort((a, b) => b.c.members.length - a.c.members.length);
+    for (const { c, cx, cy, area } of byArea) {
+      const hovered = S.hover && S.hover.type === "cluster" && S.hover.cluster === c;
+      if (area < 2200 && !hovered) continue;
+      const px = Math.max(12, Math.min(19, 10 + Math.sqrt(c.members.length) * 1.6));
+      ctx.font = `700 ${px}px 'Segoe UI','Microsoft YaHei',sans-serif`;
+      const w = ctx.measureText(c.label).width;
+      const box = { x0: cx - w / 2 - 6, x1: cx + w / 2 + 6, y0: cy - px, y1: cy + px };
+      const collides = drawn.some(
+        (b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0
+      );
+      if (collides && !hovered) continue;
+      drawn.push(box);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.lineWidth = 5;
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "rgba(255,255,255,0.92)";
+      ctx.strokeText(c.label, cx, cy);
+      ctx.fillStyle = shade(c.color || GREY);
+      ctx.fillText(c.label, cx, cy);
     }
     positionHalo();
   }

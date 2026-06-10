@@ -106,6 +106,77 @@ def fr_layout(
     return _normalize({n: (p[0], p[1]) for n, p in pos.items()})
 
 
+def spread_clusters(
+    pos: dict[str, tuple[float, float]], clusters: dict[str, str], iters: int = 60,
+) -> dict[str, tuple[float, float]]:
+    """区级分离后处理:每区按规模分配半径,质心互斥到不重叠,成员缩放进own半径,
+    最后全局点间最小距弛豫——治"全图挤成一团、区界不清"。确定性。"""
+    members: dict[str, list[str]] = {}
+    for n, c in clusters.items():
+        if n in pos:
+            members.setdefault(c, []).append(n)
+    if len(members) <= 1:
+        return dict(pos)
+    total = sum(len(v) for v in members.values())
+    cents: dict[str, list[float]] = {}
+    radii: dict[str, float] = {}
+    for c in sorted(members):
+        ms = members[c]
+        cents[c] = [sum(pos[m][0] for m in ms) / len(ms), sum(pos[m][1] for m in ms) / len(ms)]
+        radii[c] = 0.04 + 0.30 * math.sqrt(len(ms) / total)
+    cids = sorted(cents)
+    for _ in range(iters):
+        moved = False
+        for i, a in enumerate(cids):
+            for b in cids[i + 1:]:
+                dx = cents[a][0] - cents[b][0]
+                dy = cents[a][1] - cents[b][1]
+                d = math.hypot(dx, dy) or 1e-6
+                want = radii[a] + radii[b] + 0.015
+                if d < want:
+                    push = (want - d) / 2
+                    cents[a][0] += dx / d * push
+                    cents[a][1] += dy / d * push
+                    cents[b][0] -= dx / d * push
+                    cents[b][1] -= dy / d * push
+                    moved = True
+        if not moved:
+            break
+    out: dict[str, list[float]] = {}
+    for c in cids:
+        ms = members[c]
+        ocx = sum(pos[m][0] for m in ms) / len(ms)
+        ocy = sum(pos[m][1] for m in ms) / len(ms)
+        maxoff = max((math.hypot(pos[m][0] - ocx, pos[m][1] - ocy) for m in ms), default=0.0)
+        scale = min((radii[c] * 0.8) / max(maxoff, 1e-6), 3.0)
+        for m in ms:
+            out[m] = [cents[c][0] + (pos[m][0] - ocx) * scale,
+                      cents[c][1] + (pos[m][1] - ocy) * scale]
+    ids = sorted(out)
+    min_d = 0.014
+    for _ in range(25):
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                dx = out[a][0] - out[b][0]
+                dy = out[a][1] - out[b][1]
+                d = math.hypot(dx, dy)
+                if d < min_d:
+                    if d < 1e-9:
+                        # 完全重合:零向量推不开 → 按点对 id 哈希取确定性方向
+                        h = hashlib.sha256(f"{a}|{b}".encode("utf-8")).digest()
+                        ang = h[0] / 255 * 2 * math.pi
+                        ux, uy = math.cos(ang), math.sin(ang)
+                    else:
+                        ux = dx / d
+                        uy = dy / d
+                    push = (min_d - d) / 2 + 1e-4
+                    out[a][0] += ux * push
+                    out[a][1] += uy * push
+                    out[b][0] -= ux * push
+                    out[b][1] -= uy * push
+    return _normalize({n: (p[0], p[1]) for n, p in out.items()})
+
+
 def _hash_jitter(pid: str, scale: float = 0.02) -> tuple[float, float]:
     h = hashlib.sha256(pid.encode("utf-8")).digest()
     return ((h[0] / 255 - 0.5) * 2 * scale, (h[1] / 255 - 0.5) * 2 * scale)

@@ -19,9 +19,9 @@ from .graph import (
     paper_features,
     similarity_edges,
 )
-from .layout import SCHEMA_VERSION, fingerprint, fr_layout, incremental_place
+from .layout import SCHEMA_VERSION, fingerprint, fr_layout, incremental_place, spread_clusters
 
-PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "fr+lp-v1"}
+PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "fr+lp-v2"}  # v2: 区级分离后处理
 ARRIVAL_BATCH_GAP_MIN = 30
 
 ALL_LENSES = ["topic", "method", "material", "time", "institution"]
@@ -102,6 +102,7 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
     else:
         labels = label_propagation(sorted(feats), edges)
         pos = fr_layout(sorted(feats), edges, labels, iters=PARAMS["iters"], seed=PARAMS["seed"])
+        pos = spread_clusters(pos, labels)
 
     cluster_labels = name_clusters(labels, feats, idf(feats), names)
     nodes_out = [
@@ -188,6 +189,7 @@ def _institution_lens_payload(config: AppConfig) -> dict:
             for b in ps[a_idx + 1:]:
                 edges.append((a, b, 1.0))
     pos = fr_layout(sorted(paper_insts), edges, labels, iters=PARAMS["iters"], seed=PARAMS["seed"])
+    pos = spread_clusters(pos, labels)
 
     inst_names = _institution_names(config)
     nodes = [
