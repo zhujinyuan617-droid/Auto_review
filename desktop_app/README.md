@@ -38,6 +38,16 @@ vocabulary derived from the registry (AI normalization retired), authorship via
 OpenAlex + institution registry, parallel extraction. Real-library backfill
 batches NOT yet executed (see ISSUES I18 ordering).
 
+2026-06-10 additions (same branch, offline tests green — engine 152 / desktop 204):
+- **AI parallelism settings**: `app_settings.json` beside the library stores
+  flash/pro worker counts (defaults = account caps 2500/500); Settings screen
+  edits them; batch runners pick the tier by model name (`settings.parallel_for_model`).
+- **SP-Speed bulk matching**: registry normalization is now collect → shortlist →
+  **parallel** AI judging → **serial** commit (`bulk_match_elements`); the
+  bootstrap tail and `backfill_findings.py` default to it (`--match-mode stream`
+  keeps the legacy per-paper path). Real-library acceptance timing NOT yet
+  measured — see `../docs/superpowers/specs/2026-06-10-speed-sp-design.md` §6.
+
 ## What it does (HTTP API surface)
 
 | Area | Endpoints |
@@ -50,7 +60,7 @@ batches NOT yet executed (see ISSUES I18 ordering).
 | Discovery | `POST /discovery/import-ris`, `POST /discovery/search` |
 | Writing | `POST /writing/check`, `POST /writing/draft`, `GET /writing/angles` |
 | Elements | `GET /elements/overview`, `GET /elements/stats`, `GET /elements`, `GET /elements/{facet}/{slug}` (+`/cooccurrence`), `POST /elements/query`, `PUT /elements/{facet}/{slug}`, `POST /elements/bootstrap`, `GET /elements/coverage`, `GET /papers/{id}/elements` |
-| Settings | `GET`/`POST`/`DELETE /settings/apikey`, `GET /settings/setup-manifest` |
+| Settings | `GET`/`POST`/`DELETE /settings/apikey`, `GET`/`PUT /settings/parallel`, `GET /settings/setup-manifest` |
 
 ## Module map (`src/autoreview_app/`)
 
