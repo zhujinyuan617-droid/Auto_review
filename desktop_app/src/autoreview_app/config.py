@@ -43,6 +43,19 @@ class AppConfig:
     def elements_log_path(self) -> Path:
         return self.elements_data_dir / "registry_log.jsonl"
 
+    @property
+    def institutions_data_dir(self) -> Path:
+        """Institution registry + log live under <root>/data/institutions (long-lived state)."""
+        return self.library_dir.parent / "data" / "institutions"
+
+    @property
+    def institutions_registry_path(self) -> Path:
+        return self.institutions_data_dir / "registry.json"
+
+    @property
+    def institutions_log_path(self) -> Path:
+        return self.institutions_data_dir / "registry_log.jsonl"
+
     @classmethod
     def from_env(cls) -> "AppConfig":
         raw = os.environ.get(ENV_LIBRARY_DIR)

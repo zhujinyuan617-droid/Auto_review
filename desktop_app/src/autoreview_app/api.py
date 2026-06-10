@@ -57,6 +57,9 @@ DraftRunner = Callable[[dict[str, Any], Callable[[str], None]], dict[str, Any]]
 # An author-populate runner takes (progress) and returns {found, skipped}.
 AuthorPopulateRunner = Callable[[Callable[[str], None]], dict[str, Any]]
 
+# An authorship runner takes (progress) and returns {populated, pdf_fallback, skipped_no_doi, failed}.
+AuthorshipRunner = Callable[[Callable[[str], None]], dict[str, Any]]
+
 # A bootstrap runner takes (progress) and returns a summary dict.
 BootstrapRunner = Callable[[Callable[[str], None]], dict[str, Any]]
 
@@ -114,6 +117,7 @@ def create_app(
     draft_runner: DraftRunner | None = None,
     author_populate_runner: AuthorPopulateRunner | None = None,
     elements_bootstrap_runner: BootstrapRunner | None = None,
+    authorship_runner: AuthorshipRunner | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Auto Review Desktop", version="0.1.0")
     jobs = JobRegistry()
@@ -315,6 +319,18 @@ def create_app(
     def paper_elements_route(paper_id: str) -> dict:
         return paper_elements(_elements_db_or_503(), paper_id)
 
+    @app.post("/authorship/populate")
+    def authorship_populate() -> dict:
+        runner = authorship_runner or _default_authorship_runner(config)
+        return {"job_id": jobs.submit(runner)}
+
+    @app.get("/authorship/coverage")
+    def authorship_coverage() -> dict:
+        papers = [p.parent for p in sorted(config.library_dir.glob("*/literature_card.json"))]
+        done = [p.name for p in papers if (p / "authorship.json").exists()]
+        return {"papers": len(papers), "with_authorship": len(done),
+                "pending": [p.name for p in papers if p.name not in set(done)]}
+
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
     return app
 
@@ -329,6 +345,25 @@ def _default_author_populate_runner(config: AppConfig) -> AuthorPopulateRunner:
         return populate_authors(
             config.library_dir, config.authors_db,
             lambda doi: source.fetch_by_doi(doi, transport), progress,
+        )
+    return run
+
+
+def _default_authorship_runner(config: AppConfig) -> AuthorshipRunner:
+    def run(progress: Callable[[str], None]) -> dict[str, Any]:
+        import time as _time
+        from .discovery.sources.openalex import OpenAlexSource
+        from .discovery.transport import UrllibTransport
+        from .groups.authorship import populate_authorship
+        source = OpenAlexSource()
+        transport = UrllibTransport()
+
+        def _polite_fetch(doi: str) -> dict[str, Any] | None:
+            _time.sleep(0.2)
+            return source.fetch_authorship(doi, transport)
+
+        return populate_authorship(
+            config.library_dir, config.institutions_data_dir, _polite_fetch, progress,
         )
     return run
 
