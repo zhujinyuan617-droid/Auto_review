@@ -90,7 +90,7 @@ def test_prompt_lists_finding_facet(tmp_path: Path):
     joined = json.dumps(messages, ensure_ascii=False)
     # '"finding"' checked in the user-message content directly (json.dumps double-escapes inner quotes)
     assert '"finding"' in messages[1]["content"]  # facet 定义随 seeds 进入 prompt
-    assert "conclusions this paper itself establishes" in joined.lower() or "finding" in messages[0]["content"]
+    assert "conclusions this paper itself establishes" in messages[1]["content"].lower()
 
 
 def test_finding_facet_extracted_with_quote(tmp_path: Path):
@@ -117,3 +117,15 @@ def test_finding_fabricated_quote_dropped(tmp_path: Path):
     result = run_element_extraction(paper_dir, client, SEEDS)
     assert result["occurrences"] == []
     assert result["dropped"][0]["reason"] == "quote_not_found"
+
+
+def test_finding_mentioned_role_survives(tmp_path: Path):
+    blocks = [("S90-RB-0001", "Smith et al. concluded that water content strongly reduces methane adsorption capacity.", "introduction")]
+    paper_dir = write_reading_blocks(tmp_path, "S90", blocks)
+    client = SequencedFakeClient([{"paper_id": "S90", "elements": [
+        {"facet": "finding", "surface": "water reduces methane adsorption capacity",
+         "quote": "water content strongly reduces methane adsorption capacity",
+         "reading_block_id": "S90-RB-0001", "role": "mentioned"},
+    ]}])
+    result = run_element_extraction(paper_dir, client, SEEDS)
+    assert len(result["occurrences"]) == 1 and result["occurrences"][0]["role"] == "mentioned"

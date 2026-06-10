@@ -44,6 +44,12 @@ _SYSTEM = (
     "effects, measured outcomes, demonstrated mechanisms). surface = a short declarative "
     "noun phrase (e.g. 'water reduces methane adsorption capacity'). The quote must contain "
     "the concluding statement verbatim. A review restating another paper's findings -> role='mentioned'.\n"
+    "Report the paper's PRINCIPAL findings (the conclusions an abstract would state), "
+    "not every results sentence -- prefer statements from abstract/conclusion blocks. "
+    "A finding asserts a direction or outcome (X increases/reduces/controls Y); the bare "
+    "quantity or activity it concerns (e.g. 'isosteric heat', 'isotherm fitting') belongs "
+    "to analysis, not finding. A review's OWN cross-literature synthesis conclusion is "
+    "role='used'; an individual result it merely restates from a cited paper is 'mentioned'.\n"
     "7. Output strictly the JSON schema; no Markdown."
 )
 
