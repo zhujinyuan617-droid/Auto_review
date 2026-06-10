@@ -24,10 +24,9 @@ from docdecomp.paper_profile import CONTENT_CJK_DEFER_THRESHOLD
 CORE_OUTPUTS = {
     "reading": "reading_blocks.json",
     "card": "literature_card.json",
-    "evidence_atoms": "evidence_atoms.json",
-    "paper_syntheses": "paper_syntheses.json",
+    "elements": "elements.json",
 }
-STAGE_ORDER = ["clean", "sections", "reading", "card", "evidence_atoms", "paper_syntheses"]
+STAGE_ORDER = ["clean", "sections", "reading", "card", "elements", "card_tags"]
 
 
 def safe_console() -> None:
@@ -103,6 +102,11 @@ def parse_args() -> argparse.Namespace:
         help="Optionally retry Docling failures once at serial/low concurrency. Defaults to marking them unresolved.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--include-legacy-stages",
+        action="store_true",
+        help="Pass through to run_pipeline.py: run v1 evidence_atoms/paper_syntheses after card.",
+    )
     return parser.parse_args()
 
 
@@ -335,6 +339,8 @@ def retry_pipeline_stages(failures: list[dict[str, str]], args: argparse.Namespa
             command.extend(["--paper-id", paper_id])
         if args.config:
             command.extend(["--config", str(Path(args.config))])
+        if args.include_legacy_stages:
+            command.append("--include-legacy-stages")
         if args.dry_run:
             command.append("--dry-run")
         code = run_command(command, run_dir / "logs" / f"recovery_pass_{pass_index}_{stage}.log", args.dry_run)

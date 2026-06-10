@@ -24,7 +24,7 @@ HANDOFF = ROOT / "HANDOFF.md"
 CONNECTION_PLAN = ROOT / "CONNECTION_PLAN.md"
 ISSUES = ROOT / "ISSUES.md"
 GRAPH_HTML = ROOT / "reports" / "connection" / "graph.html"
-STAGES = ["clean", "sections", "reading", "card", "evidence_atoms", "paper_syntheses", "validate"]
+STAGES = ["clean", "sections", "reading", "card", "elements", "card_tags", "validate"]
 AI_CONFIG_ARG = "config\\ai.local.json"
 
 
@@ -298,8 +298,7 @@ def local_status() -> dict[str, Any]:
         "ai_sections.json",
         "reading_blocks.json",
         "literature_card.json",
-        "evidence_atoms.json",
-        "paper_syntheses.json",
+        "elements.json",
     ]:
         status[f"s05_{filename}"] = (ROOT / "library" / "S05" / filename).exists()
     return status

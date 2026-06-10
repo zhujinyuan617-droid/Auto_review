@@ -16,12 +16,13 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from docdecomp.io_utils import atomic_write_text
+from docdecomp.io_utils import atomic_write_text, write_json
 from docdecomp.library_index import write_library_index
 from docdecomp.paper_profile import CONTENT_CJK_DEFER_THRESHOLD, cjk_ratio
 
 
-STAGE_ORDER = ["clean", "sections", "reading", "card", "evidence_atoms", "paper_syntheses"]
+STAGE_ORDER = ["clean", "sections", "reading", "card", "elements", "card_tags"]
+LEGACY_STAGES = ["evidence_atoms", "paper_syntheses"]
 
 
 def safe_console() -> None:
@@ -50,18 +51,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--all", action="store_true", help="Process all paper ids found in --json-dir.")
     parser.add_argument(
         "--stage",
-        choices=[
-            "all",
-            "clean",
-            "sections",
-            "reading",
-            "card",
-            "evidence_atoms",
-            "paper_syntheses",
-            "validate",
-        ],
+        choices=["all"] + STAGE_ORDER + LEGACY_STAGES + ["validate"],
         default="all",
         help="Pipeline stage to run.",
+    )
+    parser.add_argument(
+        "--include-legacy-stages",
+        action="store_true",
+        help="Run v1 evidence_atoms/paper_syntheses after card.",
     )
     parser.add_argument("--json-dir", default=str(ROOT / "data" / "docling" / "json"))
     parser.add_argument("--md-dir", default=str(ROOT / "data" / "docling" / "md"))
@@ -102,9 +99,17 @@ def discover_paper_ids(args: argparse.Namespace) -> list[str]:
     return []
 
 
-def selected_paper_stages(stage: str) -> list[str]:
+def effective_stage_order(args: argparse.Namespace) -> list[str]:
+    """Return the active ordered stage list, splicing in legacy stages when flag set."""
+    if args.include_legacy_stages:
+        card_idx = STAGE_ORDER.index("card")
+        return STAGE_ORDER[: card_idx + 1] + LEGACY_STAGES + STAGE_ORDER[card_idx + 1 :]
+    return list(STAGE_ORDER)
+
+
+def selected_paper_stages(stage: str, args: argparse.Namespace) -> list[str]:
     if stage == "all":
-        return list(STAGE_ORDER)
+        return effective_stage_order(args)
     if stage == "validate":
         return []
     return [stage]
@@ -127,9 +132,14 @@ def stage_outputs(paper_id: str, stage: str, args: argparse.Namespace) -> list[P
             paper_dir / "merge_report.json",
         ],
         "card": [paper_dir / "literature_card.json"],
+        "elements": [paper_dir / "elements.json"],
+        "card_tags": [paper_dir / "literature_card.json"],
         "evidence_atoms": [paper_dir / "evidence_atoms.json"],
         "paper_syntheses": [paper_dir / "paper_syntheses.json"],
     }[stage]
+
+
+_CARD_TAGS_SENTINEL = "__card_tags_in_process__"
 
 
 def command_for_stage(paper_id: str, stage: str, args: argparse.Namespace, run_dir: Path) -> list[str]:
@@ -153,6 +163,27 @@ def command_for_stage(paper_id: str, stage: str, args: argparse.Namespace, run_d
         for pdf_dir in args.pdf_dir:
             command.extend(["--pdf-dir", str(Path(pdf_dir))])
         return command
+
+    if stage == "elements":
+        command.extend(
+            [
+                str(ROOT / "scripts" / "elements" / "ai_extract_elements.py"),
+                "--paper",
+                paper_id,
+                "--library-dir",
+                str(Path(args.library_dir)),
+            ]
+        )
+        if args.config:
+            command.extend(["--config", str(Path(args.config))])
+        if args.force:
+            command.append("--force")
+        return command
+
+    if stage == "card_tags":
+        # Handled in-process in run_stage; return a sentinel list so callers know
+        # not to subprocess this stage.
+        return [_CARD_TAGS_SENTINEL]
 
     script_by_stage = {
         "sections": "ai_organize_sections.py",
@@ -214,12 +245,71 @@ def run_command(command: list[str], log_path: Path, dry_run: bool) -> int:
     return completed.returncode
 
 
+def _run_card_tags_in_process(paper_id: str, args: argparse.Namespace, log_path: Path) -> StageResult:
+    """Apply card_tags derivation in-process (no subprocess, no AI)."""
+    import json as _json
+
+    paper_dir = Path(args.library_dir) / paper_id
+    registry_path = ROOT / "data" / "elements" / "registry.json"
+    if not registry_path.exists():
+        msg = f"skipped: registry not found at {registry_path}"
+        atomic_write_text(log_path, msg + "\n")
+        return StageResult(paper_id=paper_id, stage="card_tags", status="skipped")
+
+    elements_path = paper_dir / "elements.json"
+    if not elements_path.exists():
+        msg = f"skipped: elements.json not found for {paper_id}"
+        atomic_write_text(log_path, msg + "\n")
+        return StageResult(paper_id=paper_id, stage="card_tags", status="skipped")
+
+    card_path = paper_dir / "literature_card.json"
+    if not card_path.exists():
+        msg = f"skipped: literature_card.json not found for {paper_id}"
+        atomic_write_text(log_path, msg + "\n")
+        return StageResult(paper_id=paper_id, stage="card_tags", status="skipped")
+
+    try:
+        from docdecomp.element_registry import load_registry
+        from docdecomp.card_tags import derive_classification, apply_derived_tags, derive_topic_ids
+
+        registry = load_registry(registry_path)
+        elements_doc = _json.loads(elements_path.read_text(encoding="utf-8"))
+        card = _json.loads(card_path.read_text(encoding="utf-8"))
+
+        derived = derive_classification(elements_doc, registry)
+        apply_derived_tags(card, derived)
+        topic_ids = derive_topic_ids(card, registry)
+        card.setdefault("classification", {})["topic_ids"] = topic_ids
+
+        write_json(card_path, card)
+        msg = (
+            f"card_tags ok: research_objects={derived['research_objects']}, "
+            f"methods={derived['methods']}, topic_ids={topic_ids}"
+        )
+        atomic_write_text(log_path, msg + "\n")
+        return StageResult(paper_id=paper_id, stage="card_tags", status="ok", log_path=log_path)
+    except Exception as exc:  # noqa: BLE001
+        msg = f"card_tags failed: {type(exc).__name__}: {exc}"
+        atomic_write_text(log_path, msg + "\n")
+        return StageResult(paper_id=paper_id, stage="card_tags", status=f"failed:1", log_path=log_path)
+
+
 def run_stage(paper_id: str, stage: str, args: argparse.Namespace, run_dir: Path) -> StageResult:
     outputs = stage_outputs(paper_id, stage, args)
     if args.resume and not args.force and all(path.exists() for path in outputs):
         return StageResult(paper_id=paper_id, stage=stage, status="skipped")
 
     log_path = run_dir / "logs" / f"{paper_id}_{stage}.log"
+
+    # card_tags is an in-process step — no subprocess
+    if stage == "card_tags":
+        if args.dry_run:
+            registry_path = ROOT / "data" / "elements" / "registry.json"
+            print(f"[card_tags in-process] paper={paper_id} registry={registry_path}")
+            atomic_write_text(log_path, "[dry-run]\n")
+            return StageResult(paper_id=paper_id, stage="card_tags", status="ok", log_path=log_path)
+        return _run_card_tags_in_process(paper_id, args, log_path)
+
     command = command_for_stage(paper_id, stage, args, run_dir)
     code = run_command(command, log_path, args.dry_run)
     status = "ok" if code == 0 else f"failed:{code}"
@@ -291,31 +381,37 @@ def run_validation(paper_ids: list[str], args: argparse.Namespace, run_dir: Path
                 str(run_dir / "literature_card_quality.csv"),
             ],
         ),
-        (
-            "validate_evidence_atoms",
-            [
-                sys.executable,
-                str(ROOT / "scripts" / "validate_evidence_atoms.py"),
-                "--library-dir",
-                str(Path(args.library_dir)),
-                *common_ids,
-                "--report",
-                str(run_dir / "evidence_atoms_quality.csv"),
-            ],
-        ),
-        (
-            "validate_paper_syntheses",
-            [
-                sys.executable,
-                str(ROOT / "scripts" / "validate_paper_syntheses.py"),
-                "--library-dir",
-                str(Path(args.library_dir)),
-                *common_ids,
-                "--report",
-                str(run_dir / "paper_syntheses_quality.csv"),
-            ],
-        ),
     ]
+    # Legacy validators: only run when legacy stages are included
+    if args.include_legacy_stages:
+        validators.extend(
+            [
+                (
+                    "validate_evidence_atoms",
+                    [
+                        sys.executable,
+                        str(ROOT / "scripts" / "validate_evidence_atoms.py"),
+                        "--library-dir",
+                        str(Path(args.library_dir)),
+                        *common_ids,
+                        "--report",
+                        str(run_dir / "evidence_atoms_quality.csv"),
+                    ],
+                ),
+                (
+                    "validate_paper_syntheses",
+                    [
+                        sys.executable,
+                        str(ROOT / "scripts" / "validate_paper_syntheses.py"),
+                        "--library-dir",
+                        str(Path(args.library_dir)),
+                        *common_ids,
+                        "--report",
+                        str(run_dir / "paper_syntheses_quality.csv"),
+                    ],
+                ),
+            ]
+        )
     for stage, command in validators:
         log_path = run_dir / "logs" / f"{stage}.log"
         code = run_command(command, log_path, args.dry_run)
@@ -353,7 +449,7 @@ def main() -> int:
     run_dir = Path(args.reports_dir) / f"pipeline_{run_id}"
     (run_dir / "logs").mkdir(parents=True, exist_ok=True)
 
-    stages = selected_paper_stages(args.stage)
+    stages = selected_paper_stages(args.stage, args)
     results: list[StageResult] = []
     if stages:
         parallel = max(1, args.parallel)
