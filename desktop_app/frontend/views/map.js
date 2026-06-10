@@ -1,4 +1,4 @@
-import { getJSON, postJSON } from "/assets/api.js";
+import { getJSON, postJSON, putJSON } from "/assets/api.js";
 import { el, clear, loading, errorState } from "/assets/ui.js";
 
 // 知识地图首页(SP-Map §1/§2/§4 前端面)。
@@ -7,7 +7,8 @@ import { el, clear, loading, errorState } from "/assets/ui.js";
 // 而本视图的坐标全部来自后端 /map 的缓存布局(静态、要稳定)。261 个点的散点
 // + 同区凸包,用原生 canvas 直接画最合适:零新依赖、老点位置一像素不漂。
 // 时间镜头后端只给 {id, year, lit},横轴年代分带、同年纵排在这里(前端)布点。
-// 特写外环按任务简化方案:同区内 size(核心度)最高的 8 篇,不算共享要素边。
+// 特写外环(Wave-2 起)= GET /map/neighbors 的共享要素 top-8(真口径,替换了
+// 首发版"同区 size top-8"的简化方案);内环仍是 /network 的 AI 判边。
 
 const LENS_NAMES = { topic: "主题", method: "方法", material: "材料", time: "时间", institution: "机构" };
 
@@ -30,17 +31,39 @@ const PALETTE = [
 const GREY = "#9aa4b2";
 const ACCENT = "#0969da";
 const REL_COLORS = { supports: "#2e8b6f", contradicts: "#c2502f", complements: "#3f6bb0" };
+const REL_LABELS = { supports: "支持", contradicts: "矛盾", complements: "互补" };
 const REL_FALLBACK = "#8a7aa8";
+
+const STATE_KEY = "mapState";              // sessionStorage:{lens, scale, panX, panY, selectedId}
+const ARRIVE_KEY = "arriveAfterImport";    // 导入闭环标志(import.js 置位,本视图读后即清)
+
+function trunc(s, n) {
+  s = String(s || "");
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+// 区描述(POST /map/describe)每镜头每次会话只发一次;pending 供面板显示"生成中"。
+const describedLenses = new Set();
+const describePending = new Set();
 
 let teardown = null; // 上一次挂载的清理(重进/离开路由时执行,防 rAF 与监听泄漏)
 
 export async function render(view) {
   if (teardown) { teardown(); teardown = null; }
   loading(view);
+
+  // 状态记忆:镜头要在数据加载前生效(其余视口量等 prepareLens 后恢复)。
+  let savedState = null;
+  try { savedState = JSON.parse(sessionStorage.getItem(STATE_KEY) || "null"); } catch (err) { savedState = null; }
+  const startLens = savedState && LENS_NAMES[savedState.lens] ? savedState.lens : "topic";
+
   let payload, library, coverage, arrivals;
   try {
     [payload, library, coverage, arrivals] = await Promise.all([
-      getJSON("/map?lens=topic"),
+      getJSON(`/map?lens=${encodeURIComponent(startLens)}`).catch((err) => {
+        if (startLens === "topic") throw err;
+        return getJSON("/map?lens=topic"); // 记忆的镜头不可用(如要素索引被删)→ 回退主题
+      }),
       getJSON("/library/papers").catch(() => ({ papers: [] })),
       getJSON("/elements/coverage").catch(() => null),
       getJSON("/map/arrivals").catch(() => ({ batch: [] })),
@@ -71,7 +94,9 @@ export async function render(view) {
     dirty: true,
     disposed: false,
     netCache: null,            // /network 响应缓存(特写用)
+    regionPanel: null,         // 当前打开的区面板 {cluster, slot}(描述句异步回填用)
   };
+  const neighborCache = new Map(); // `${lens}|${pid}` → /map/neighbors 结果(特写外环)
 
   // ---------- DOM 骨架(全屏画布 + 悬浮件) ----------
   clear(view);
@@ -83,16 +108,17 @@ export async function render(view) {
   for (const l of payload.lenses || Object.keys(LENS_NAMES)) {
     lensSel.append(el("option", { value: l }, LENS_NAMES[l] || l));
   }
-  lensSel.value = "topic";
+  lensSel.value = payload.lens || "topic";
   const relayoutBtn = el("button", { class: "map-btn", text: "重新布局", title: "全量重排当前镜头(老点会动)" });
   const topleft = el("div", { class: "map-overlay map-topleft" }, [lensSel, relayoutBtn]);
 
   const searchInput = el("input", {
     class: "map-search",
-    placeholder: "搜论文 Sxx 或要素名,回车;Esc 清除高亮",
+    placeholder: "搜标题关键词 / Sxx / 要素名;Esc 清除",
   });
   const searchChip = el("span", { class: "map-chip", hidden: "" });
-  const topcenter = el("div", { class: "map-overlay map-topcenter" }, [searchInput, searchChip]);
+  const searchDrop = el("div", { class: "map-search-drop", hidden: "" });
+  const topcenter = el("div", { class: "map-overlay map-topcenter" }, [searchInput, searchChip, searchDrop]);
 
   const statusBadge = el("div", { class: "map-overlay map-status" });
   const nPapers = coverage ? coverage.papers : (payload.nodes || []).length;
@@ -316,9 +342,9 @@ export async function render(view) {
     ctx.fillStyle = "#fbfcfd";
     ctx.fillRect(0, 0, cssW, cssH);
 
-    // 同区凸包淡色底(粗描边 + 填充 = 外扩圆角的廉价实现)
+    // 同区凸包淡色底(粗描边 + 填充 = 外扩圆角的廉价实现);misc 区不画凸包不画名
     for (const c of S.clusters) {
-      if (!c.members.length) { c._hull = null; continue; }
+      if (!c.members.length || c.misc) { c._hull = null; continue; }
       const hull = convexHull(c.members.map((n) => [SX(n.x), SY(n.y)]));
       c._hull = hull;
       const hovered = S.hover && S.hover.type === "cluster" && S.hover.cluster === c;
@@ -341,7 +367,7 @@ export async function render(view) {
       ctx.globalAlpha = alpha;
       ctx.beginPath();
       ctx.arc(x, y, n.r, 0, 2 * Math.PI);
-      ctx.fillStyle = n.lit ? (c && c.color) || GREY : GREY;
+      ctx.fillStyle = n.lit && !(c && c.misc) ? (c && c.color) || GREY : GREY; // 零散文献保持灰点
       ctx.fill();
       ctx.lineWidth = 0.6;
       ctx.strokeStyle = "rgba(27,34,48,0.3)";
@@ -458,11 +484,15 @@ export async function render(view) {
     if (!same) S.dirty = true;
     canvas.style.cursor = S.hover ? "pointer" : "default";
     if (n) {
-      const t = (titles[n.id] && titles[n.id].title) || "";
-      showTooltip(clientX, clientY,
-        `${n.id}${t ? " · " + t.slice(0, 60) : ""}${n.lit ? "" : "(" + (UNLIT_REASON[S.lens] || "未点亮") + ")"}`);
+      const rec = titles[n.id] || {};
+      const head = rec.title
+        ? trunc(rec.title, 60) + (rec.year ? `(${rec.year})` : "")
+        : "(无标题)";
+      const sub = n.id + (n.lit ? "" : " ·(" + (UNLIT_REASON[S.lens] || "未点亮") + ")");
+      showTooltip(clientX, clientY, head + "\n" + sub);
     } else if (c) {
-      showTooltip(clientX, clientY, `${c.label} · ${c.members.length} 篇`);
+      showTooltip(clientX, clientY,
+        `${c.label} · ${c.members.length} 篇${c.description ? "\n" + c.description : ""}`);
     } else {
       hideTooltip();
     }
@@ -470,13 +500,20 @@ export async function render(view) {
 
   // ---------- 右侧滑出卡 ----------
   function openPanel(titleText, build) {
+    S.regionPanel = null; // 非区面板一律清掉描述回填指针(showRegion 自己再设)
     sideTitle.textContent = titleText;
     clear(sideBody);
     build(sideBody);
     side.classList.add("open");
   }
-  function closePanel() { side.classList.remove("open"); }
+  function closePanel() { side.classList.remove("open"); S.regionPanel = null; }
   sideClose.addEventListener("click", closePanel);
+
+  // 用户可见处一律以标题称呼论文(无标题才退回 Sxx)。
+  function paperLabel(pid, len) {
+    const t = (titles[pid] && titles[pid].title) || "";
+    return t ? trunc(t, len) : pid;
+  }
 
   function showArrivals() {
     openPanel(`新文献着陆(${batch.length} 篇)`, (body) => {
@@ -487,9 +524,12 @@ export async function render(view) {
           : el("div", {}, [el("b", { text: a.paper_id }), ` → 落入「${a.cluster_label || a.cluster || "?"}」`]);
         const row = el("div", { class: "map-row" }, [
           head,
-          rec.title ? el("div", { class: "map-side-meta", text: rec.title.slice(0, 64) }) : null,
+          rec.title ? el("div", { class: "map-side-meta", text: trunc(rec.title, 64) }) : null,
           a.neighbors && a.neighbors.length
-            ? el("div", { class: "map-side-meta", text: "最近邻 " + a.neighbors.map((x) => x.paper_id).join(", ") })
+            ? el("div", { class: "map-side-meta" }, [
+                "最近邻:",
+                ...a.neighbors.map((x) => el("div", { class: "map-arrival-nb", text: "· " + paperLabel(x.paper_id, 32) })),
+              ])
             : null,
         ]);
         row.addEventListener("click", () => {
@@ -506,9 +546,160 @@ export async function render(view) {
   }
   arrivalsBadge.addEventListener("click", showArrivals);
 
+  // ---- 区面板标题行:区名 +「人工」徽标 +「改名」按钮(misc/时间分带不可改名) ----
+  function regionTitle(c) {
+    clear(sideTitle);
+    sideTitle.append(document.createTextNode(`${c.label}(${c.members.length} 篇)`));
+    if (c.label_overridden) {
+      sideTitle.append(el("span", { class: "map-badge-human", text: "人工", title: "人工命名,永久优先" }));
+    }
+    if (S.hasBackendClusters && !c.misc) {
+      const btn = el("button", { class: "map-rename-btn", text: "改名", title: "为这个区起个永久名字(优先于自动命名)" });
+      btn.addEventListener("click", () => renameUI(c));
+      sideTitle.append(btn);
+    }
+  }
+
+  function renameUI(c) {
+    clear(sideTitle);
+    const input = el("input", { class: "map-rename-input", value: c.label });
+    const ok = el("button", { class: "map-rename-btn", text: "确定" });
+    const cancel = el("button", { class: "map-rename-btn", text: "取消" });
+    cancel.addEventListener("click", () => regionTitle(c));
+    ok.addEventListener("click", async () => {
+      const label = input.value.trim();
+      if (!label) return showToast("区名不能为空");
+      ok.disabled = true; cancel.disabled = true;
+      try {
+        await putJSON("/map/cluster-label", { lens: S.lens, cluster_id: String(c.id), label });
+        c.label = label;
+        c.label_overridden = true;
+        regionTitle(c);
+        S.dirty = true; // 地图上的区名同步重画
+        showToast("已改名(人工命名,永久优先)");
+      } catch (err) {
+        showToast("改名失败:" + err.message);
+        ok.disabled = false; cancel.disabled = false;
+      }
+    });
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation(); // 不触发全局 Esc/搜索框逻辑
+      if (e.key === "Enter") ok.click();
+      if (e.key === "Escape") regionTitle(c);
+    });
+    sideTitle.append(input, ok, cancel);
+    input.focus();
+    input.select();
+  }
+
+  // ---- 区描述句(AI 一句话):面板顶部淡色块;生成中/缺失时各有说法 ----
+  function fillRegionDesc(c, slot) {
+    clear(slot);
+    if (c.misc) return;
+    if (c.description) {
+      slot.append(el("span", { text: c.description }), el("span", { class: "map-desc-tag", text: "AI 生成" }));
+    } else if (describePending.has(S.lens)) {
+      slot.append(el("span", { class: "map-desc-tag", text: "区描述生成中…" }));
+    }
+  }
+
+  // 进入镜头后:有区缺描述 → 后台静默批量生成(每镜头每次会话只发一次,不阻塞渲染)。
+  function maybeDescribe() {
+    const lens = S.lens;
+    if (!S.hasBackendClusters || describedLenses.has(lens)) return;
+    if (!S.clusters.some((c) => !c.misc && !c.description && c.members.length)) return;
+    describedLenses.add(lens);
+    describePending.add(lens);
+    postJSON(`/map/describe?lens=${encodeURIComponent(lens)}`, {})
+      .then((resp) => {
+        if (S.disposed || S.lens !== lens) return;
+        const fresh = new Map((resp.clusters || []).map((rc) => [rc.id, rc]));
+        for (const c of S.clusters) {
+          const rc = fresh.get(c.id);
+          if (rc && rc.description) c.description = rc.description;
+        }
+        if (S.regionPanel) fillRegionDesc(S.regionPanel.cluster, S.regionPanel.slot);
+      })
+      .catch(() => { /* 描述是锦上添花:失败静默(无 key 时后端也只回 generated=0) */ })
+      .finally(() => {
+        describePending.delete(lens);
+        if (!S.disposed && S.regionPanel) fillRegionDesc(S.regionPanel.cluster, S.regionPanel.slot);
+      });
+  }
+
+  // ---- 时间镜头:该年代首现的要素(GET /map/first-seen) ----
+  function firstSeenSection(y0, y1) {
+    const box = el("div", { class: "map-panel-sec" }, [
+      el("h4", { class: "map-facet-head", text: "该年代首现的要素" }),
+    ]);
+    const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
+    box.append(slot);
+    getJSON(`/map/first-seen?year_from=${y0}&year_to=${y1}`)
+      .then((d) => {
+        clear(slot);
+        const list = d.elements || [];
+        if (!list.length) return slot.append(el("p", { class: "muted", text: "该年代没有首现的要素。" }));
+        for (const e2 of list) {
+          slot.append(el("div", {
+            class: "map-first-seen-row",
+            text: `${e2.name}(首现 ${e2.first_year} · 后续 ${Math.max(0, (e2.papers_total || 1) - 1)} 篇)`,
+            title: `首现于 ${paperLabel(e2.first_paper, 60)}`,
+          }));
+        }
+      })
+      .catch((err) => {
+        clear(slot);
+        slot.append(el("p", {
+          class: "muted",
+          text: err.code === 503 ? "要素索引未构建(到「找 → 全库统计」构建)。" : "首现数据加载失败:" + err.message,
+        }));
+      });
+    return box;
+  }
+
+  // ---- 机构镜头:该机构的研究面貌(GET /map/institution-elements) ----
+  function institutionSection(instId) {
+    const box = el("div", { class: "map-panel-sec" }, [
+      el("h4", { class: "map-facet-head", text: "该机构的研究面貌" }),
+    ]);
+    const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
+    box.append(slot);
+    getJSON(`/map/institution-elements?id=${encodeURIComponent(instId)}`)
+      .then((d) => {
+        clear(slot);
+        const facets = d.facets || {};
+        const keys = Object.keys(facets);
+        if (!keys.length) return slot.append(el("p", { class: "muted", text: "暂无要素数据(该机构论文的要素未构建)。" }));
+        for (const f of keys) {
+          slot.append(el("div", { class: "map-side-meta", text: f }));
+          const wrap = el("div", { class: "map-chip-wrap" });
+          for (const it of facets[f] || []) {
+            wrap.append(el("span", { class: "tag", text: `${it.name}×${it.papers}` }));
+          }
+          slot.append(wrap);
+        }
+      })
+      .catch((err) => {
+        clear(slot);
+        slot.append(el("p", { class: "muted", text: "研究面貌加载失败:" + err.message }));
+      });
+    return box;
+  }
+
   function showRegion(c) {
     focusCluster(c);
-    openPanel(`${c.label}(${c.members.length} 篇)`, (body) => {
+    openPanel("", (body) => {
+      const descSlot = el("div", { class: "map-region-desc" });
+      body.append(descSlot);
+      fillRegionDesc(c, descSlot);
+      S.regionPanel = { cluster: c, slot: descSlot };
+      if (S.lens === "time" && /^decade:\d+$/.test(String(c.id))) {
+        const y0 = parseInt(String(c.id).slice(7), 10);
+        body.append(firstSeenSection(y0, y0 + 9)); // 2010 年代 = 2010–2019
+      }
+      if (S.lens === "institution" && !String(c.id).startsWith("__")) {
+        body.append(institutionSection(String(c.id)));
+      }
       const routeSlot = el("div");
       body.append(routeSlot);
       if (S.hasBackendClusters) {
@@ -537,12 +728,13 @@ export async function render(view) {
         const t = (titles[n.id] && titles[n.id].title) || "";
         const row = el("div", { class: "map-row" }, [
           el("div", {}, [el("b", { text: n.id }), n.lit ? null : el("span", { class: "map-side-meta", text: " (未点亮)" })]),
-          el("div", { class: "map-side-meta", text: t.slice(0, 70) || "(无标题)" }),
+          el("div", { class: "map-side-meta", text: trunc(t, 70) || "(无标题)" }),
         ]);
         row.addEventListener("click", () => showPaper(n));
         body.append(row);
       }
     });
+    regionTitle(c); // openPanel 只接受纯文本标题,区标题行(徽标+改名)在这之后自绘
   }
 
   function showPaper(n) {
@@ -551,10 +743,15 @@ export async function render(view) {
     S.dirty = true;
     focusNode(n);
     const rec = titles[n.id] || {};
-    openPanel(n.id, (body) => {
+    // 标头以标题为主,Sxx 降为身下小字(去 S 化)。
+    openPanel(rec.title ? trunc(rec.title, 90) : n.id, (body) => {
       body.append(
-        el("div", { class: "map-paper-title", text: rec.title || "(无标题)" }),
-        el("div", { class: "map-side-meta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
+        el("div", { class: "map-side-meta" }, [
+          el("b", { text: n.id }),
+          [rec.year, rec.journal].filter(Boolean).length
+            ? " · " + [rec.year, rec.journal].filter(Boolean).join(" · ")
+            : null,
+        ]),
       );
       const b1 = el("button", { class: "map-btn", text: "进拆解页" });
       b1.addEventListener("click", () => { location.hash = `#/papers/${n.id}/decompose`; });
@@ -618,7 +815,17 @@ export async function render(view) {
   function closeCloseup() { closeup.hidden = true; clear(closeup); }
   closeup.addEventListener("click", (e) => { if (e.target === closeup) closeCloseup(); });
 
-  function buildCloseup(card, pid) {
+  // 外环真口径:该镜头下共享要素最强的 top-8(GET /map/neighbors),按 (镜头|论文) 缓存。
+  async function fetchNeighbors(pid) {
+    const key = S.lens + "|" + pid;
+    if (neighborCache.has(key)) return neighborCache.get(key);
+    const d = await getJSON(`/map/neighbors?paper_id=${encodeURIComponent(pid)}&lens=${encodeURIComponent(S.lens)}`);
+    const list = d.neighbors || [];
+    neighborCache.set(key, list);
+    return list;
+  }
+
+  async function buildCloseup(card, pid) {
     clear(card);
     const rec = titles[pid] || {};
     const closeBtn = el("button", { class: "map-side-close", text: "×", title: "关闭" });
@@ -626,12 +833,18 @@ export async function render(view) {
     card.append(el("div", { class: "map-closeup-head" }, [
       el("div", {}, [
         el("b", { text: pid + " 关系特写" }),
-        el("div", { class: "map-side-meta", text: (rec.title || "").slice(0, 70) }),
+        el("div", { class: "map-side-meta", text: trunc(rec.title || "", 70) }),
       ]),
       closeBtn,
     ]));
+    const ld = el("p", { class: "muted", text: "加载共享要素邻居…" });
+    card.append(ld);
+    let nbList = [], nbErr = null;
+    try { nbList = await fetchNeighbors(pid); } catch (err) { nbErr = err; }
+    if (closeup.hidden) return; // 等待期间用户已关闭
+    ld.remove();
 
-    // 内环 = /network 中与焦点相连的 AI 判边;外环 = 当前镜头同区 size 最高 8 篇(简化方案)
+    // 内环 = /network 中与焦点相连的 AI 判边;外环 = /map/neighbors top-8(真·共享要素口径)
     const incident = (S.netCache.edges || []).filter((e2) => e2.a === pid || e2.b === pid);
     const innerMap = new Map();
     for (const e2 of incident) {
@@ -639,13 +852,11 @@ export async function render(view) {
       if (nid && !innerMap.has(nid)) innerMap.set(nid, e2.relation || "");
     }
     const inner = [...innerMap.entries()].slice(0, 12).map(([id, rel]) => ({ id, rel }));
-    const me = S.byId.get(pid);
-    const myCluster = me ? S.clusterById.get(me.cluster) : null;
     const innerIds = new Set(inner.map((x) => x.id));
-    const outer = (myCluster ? myCluster.members : [])
-      .filter((n) => n.id !== pid && !innerIds.has(n.id))
+    const outer = nbList
+      .filter((x) => x.paper_id !== pid && !innerIds.has(x.paper_id))
       .slice(0, 8)
-      .map((n) => ({ id: n.id, rel: null }));
+      .map((x) => ({ id: x.paper_id, rel: null, shared: x.shared || [] }));
 
     const W = 680, H = 540, cx = W / 2, cy = H / 2;
     const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "map-closeup-svg" });
@@ -660,11 +871,22 @@ export async function render(view) {
           stroke: color, "stroke-width": isInner ? 2 : 1.2,
           "stroke-dasharray": isInner ? null : "4 4", opacity: isInner ? 0.8 : 0.5,
         }));
-        const t = ((titles[item.id] && titles[item.id].title) || "").slice(0, 18);
+        const t = trunc((titles[item.id] && titles[item.id].title) || "", 18); // 圈下文字 = 标题
+        const tip = [
+          (titles[item.id] && titles[item.id].title) || item.id,
+          isInner
+            ? "关系:" + (REL_LABELS[item.rel] || item.rel || "关联")
+            : (item.shared && item.shared.length ? "共享要素:" + item.shared.join("、") : null),
+        ].filter(Boolean).join("\n");
         const g = svgEl("g", { class: "map-closeup-node" }, [
+          svgEl("title", {}, [tip]), // 悬停显示全称 + 全部共享要素
           svgEl("circle", { cx: x, cy: y, r: isInner ? 13 : 10, fill: "#fff", stroke: color, "stroke-width": 2 }),
           svgEl("text", { x, y: y + 3, "text-anchor": "middle", "font-size": 9, fill: "#1f2328" }, [item.id]),
           svgEl("text", { x, y: y + (isInner ? 26 : 22), "text-anchor": "middle", "font-size": 9, fill: "#656d76" }, [t]),
+          !isInner && item.shared && item.shared.length
+            ? svgEl("text", { x, y: y + 33, "text-anchor": "middle", "font-size": 8.5, fill: "#8a7aa8" },
+                [trunc(item.shared[0], 14)])
+            : null,
         ]);
         g.addEventListener("click", () => buildCloseup(card, item.id)); // 点邻居切焦点
         svg.append(g);
@@ -685,9 +907,14 @@ export async function render(view) {
       item(REL_COLORS.supports, "支持"),
       item(REL_COLORS.contradicts, "矛盾"),
       item(REL_COLORS.complements, "互补"),
-      item("#98a2b3", "同区核心(当前镜头 size top-8)", true),
+      item("#98a2b3", "共享要素邻居 top-8(当前镜头)", true),
     );
     card.append(legend);
+    if (nbErr) {
+      card.append(el("p", { class: "muted", text: nbErr.code === 503 ? "共享要素邻居需要先构建要素索引(外环为空)。" : "共享要素邻居加载失败:" + nbErr.message }));
+    } else if (!outer.length) {
+      card.append(el("p", { class: "muted", text: "该篇在当前镜头下没有共享要素的邻居(外环为空)。" }));
+    }
     if (!inner.length) {
       card.append(el("p", { class: "muted", text: S.netCache._error ? "关系数据不可用:" + S.netCache._error : "该篇暂无 AI 判定的关系边(内环为空)。" }));
     }
@@ -708,28 +935,19 @@ export async function render(view) {
     S.dirty = true;
   }
 
-  searchInput.addEventListener("keydown", async (e) => {
-    if (e.key === "Escape") {
-      e.stopPropagation(); // 不再冒泡到全局 Esc(否则会顺手把面板也关了)
-      searchInput.value = "";
-      clearSearch();
-      searchInput.blur();
-      return;
-    }
-    if (e.key !== "Enter") return;
-    const v = searchInput.value.trim();
-    if (!v) return;
-    if (/^s\d+$/i.test(v)) { // 论文号:高亮 + 聚焦
-      const id = v.toUpperCase();
-      const n = S.byId.get(id) || S.nodes.find((x) => String(x.id).toUpperCase() === id);
-      if (!n) return showToast(`库中没有 ${id}`);
-      clearSearch();
-      S.selectedId = n.id;
-      focusNode(n);
-      S.dirty = true;
-      return;
-    }
-    try { // 要素名:取首个命中要素 → 高亮所有含它的论文,其余压暗
+  function jumpToPaper(pid) { // 标题命中:飞行定位
+    const n = S.byId.get(pid);
+    if (!n) return showToast(`当前镜头里找不到 ${pid}`);
+    clearSearch();
+    S.selectedId = pid;
+    S.haloId = null;
+    focusNode(n);
+    S.dirty = true;
+  }
+
+  async function searchByElement(v) { // 要素名:取首个命中要素 → 高亮所有含它的论文,其余压暗
+    hideDrop();
+    try {
       const hits = (await getJSON(`/elements?q=${encodeURIComponent(v)}`)).elements || [];
       if (!hits.length) return showToast(`没有匹配的要素:${v}`);
       const hit = hits[0];
@@ -742,6 +960,70 @@ export async function render(view) {
     } catch (err) {
       showToast(err.code === 503 ? "要素索引未构建,先到「找 → 全库统计」构建" : "检索失败:" + err.message);
     }
+  }
+
+  // ---- 关键词下拉:标题子串 top-8(本地标题缓存)+ 末行按要素筛选;回车=第一项 ----
+  let dropItems = [];
+  let dropTimer = null;
+  function hideDrop() { searchDrop.hidden = true; clear(searchDrop); dropItems = []; }
+  function updateDrop() {
+    const q = searchInput.value.trim();
+    if (!q) return hideDrop();
+    clear(searchDrop);
+    dropItems = [];
+    const ql = q.toLowerCase();
+    const hits = (library.papers || [])
+      .filter((p) => (p.title || "").toLowerCase().includes(ql))
+      .slice(0, 8);
+    for (const p of hits) {
+      const run = () => { hideDrop(); jumpToPaper(p.paper_id); };
+      const row = el("div", { class: "map-search-item" }, [
+        el("span", { class: "map-search-item-title", text: p.title }),
+        el("span", { class: "map-side-meta", text: [p.year, p.paper_id].filter(Boolean).join(" · ") }),
+      ]);
+      row.addEventListener("pointerdown", (e) => { e.preventDefault(); run(); }); // 先于 blur 生效
+      searchDrop.append(row);
+      dropItems.push({ run });
+    }
+    const elemRun = () => { searchByElement(q); };
+    const elemRow = el("div", { class: "map-search-item map-search-elem", text: `按要素「${q}」筛选` });
+    elemRow.addEventListener("pointerdown", (e) => { e.preventDefault(); elemRun(); });
+    searchDrop.append(elemRow);
+    dropItems.push({ run: elemRun });
+    searchDrop.hidden = false;
+  }
+
+  searchInput.addEventListener("input", () => {
+    if (dropTimer) clearTimeout(dropTimer);
+    dropTimer = setTimeout(() => { dropTimer = null; updateDrop(); }, 200);
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.stopPropagation(); // 不再冒泡到全局 Esc(否则会顺手把面板也关了)
+      searchInput.value = "";
+      hideDrop();
+      clearSearch();
+      searchInput.blur();
+      return;
+    }
+    if (e.key !== "Enter") return;
+    if (dropTimer) { clearTimeout(dropTimer); dropTimer = null; updateDrop(); } // 防抖未落地就回车:先同步刷新
+    const v = searchInput.value.trim();
+    if (!v) return;
+    if (/^s\d+$/i.test(v)) { // 论文号精确输入仍直达
+      hideDrop();
+      const id = v.toUpperCase();
+      const n = S.byId.get(id) || S.nodes.find((x) => String(x.id).toUpperCase() === id);
+      if (!n) return showToast(`库中没有 ${id}`);
+      clearSearch();
+      S.selectedId = n.id;
+      focusNode(n);
+      S.dirty = true;
+      return;
+    }
+    if (!searchDrop.hidden && dropItems.length) return dropItems[0].run(); // 回车 = 下拉第一项
+    searchByElement(v);
   });
 
   function onKeydown(e) {
@@ -756,10 +1038,12 @@ export async function render(view) {
   lensSel.addEventListener("change", async () => {
     const target = lensSel.value, prev = S.lens;
     lensSel.disabled = true; relayoutBtn.disabled = true;
+    hideDrop();
     try {
       const p = await getJSON(`/map?lens=${encodeURIComponent(target)}`);
       prepareLens(p);
       closePanel();
+      maybeDescribe(); // 进入镜头后:缺描述的区后台静默补
     } catch (err) {
       lensSel.value = prev;
       showToast(err.code === 503
@@ -796,6 +1080,7 @@ export async function render(view) {
   // ---------- 画布交互 ----------
   let drag = null;
   canvas.addEventListener("pointerdown", (e) => {
+    hideDrop(); // 点画布:收起搜索下拉
     drag = { x: e.clientX, y: e.clientY, ox: S.vw.ox, oy: S.vw.oy, moved: false };
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 非指针环境忽略 */ }
   });
@@ -835,11 +1120,44 @@ export async function render(view) {
     zoomAt(e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015));
   }, { passive: false });
 
-  // ---------- 启动:尺寸 → 数据 → 渲染循环 ----------
+  // ---------- 状态记忆:节流保存 / 启动恢复 ----------
+  let saveTimer = null;
+  function saveNow() {
+    try {
+      sessionStorage.setItem(STATE_KEY, JSON.stringify({
+        lens: S.lens, scale: S.vw.s, panX: S.vw.ox, panY: S.vw.oy, selectedId: S.selectedId,
+      }));
+    } catch (err) { /* sessionStorage 不可用(隐私模式等):跳过 */ }
+  }
+  function scheduleSave() {
+    if (saveTimer || S.disposed) return;
+    saveTimer = setTimeout(() => { saveTimer = null; saveNow(); }, 400);
+  }
+
+  // ---------- 启动:尺寸 → 数据 → 状态恢复 → 渲染循环 ----------
   const ro = new ResizeObserver(() => resize());
   ro.observe(stage);
   resize();
   prepareLens(payload);
+
+  if (savedState && savedState.lens === S.lens) { // 镜头没回退才恢复视口/选中
+    const { scale, panX, panY, selectedId } = savedState;
+    if ([scale, panX, panY].every((v) => typeof v === "number" && isFinite(v)) && scale > 0) {
+      S.vw = { s: scale, ox: panX, oy: panY };
+      S.anim = null;
+    }
+    if (selectedId && S.byId.has(selectedId)) S.selectedId = selectedId;
+    S.dirty = true;
+  }
+  maybeDescribe();
+
+  // 导入闭环:import.js 置位 → 读后即清 → 数据已就绪,自动打开着陆卡
+  let arriveFlag = false;
+  try {
+    arriveFlag = sessionStorage.getItem(ARRIVE_KEY) === "1";
+    if (arriveFlag) sessionStorage.removeItem(ARRIVE_KEY);
+  } catch (err) { arriveFlag = false; }
+  if (arriveFlag && batch.length) showArrivals();
 
   function tick(now) {
     if (S.disposed) return;
@@ -854,7 +1172,7 @@ export async function render(view) {
       if (k >= 1) S.anim = null;
       S.dirty = true;
     }
-    if (S.dirty) { draw(); S.dirty = false; }
+    if (S.dirty) { draw(); S.dirty = false; scheduleSave(); }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -868,6 +1186,9 @@ export async function render(view) {
 
   teardown = () => {
     S.disposed = true;
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    saveNow(); // 离开前把最终视口落 sessionStorage(状态记忆)
+    if (dropTimer) { clearTimeout(dropTimer); dropTimer = null; }
     ro.disconnect();
     window.removeEventListener("keydown", onKeydown);
     window.removeEventListener("hashchange", onHashChange);

@@ -13,29 +13,47 @@ function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 function pdfSection() {
   const box = el("div", { class: "card-box section" }, [el("h3", { text: "导入 PDF" })]);
-  box.append(el("p", { class: "muted", text: "暂不支持中文 PDF —— 会导入失败(ISSUES I17)。" }));
-  const input = el("input", { class: "search", placeholder: "PDF 完整路径,如 D:\\\\papers\\\\x.pdf" });
+  box.append(el("p", { class: "muted", text: "暂不支持中文 PDF —— 会导入失败(ISSUES I17)。一行一个完整路径,多个文件作为同一批次导入。" }));
+  const input = el("textarea", {
+    class: "search", rows: "3",
+    placeholder: "PDF 完整路径,一行一个,如 D:\\papers\\x.pdf",
+  });
   const status = el("div", { class: "section" });
   const btn = el("button", { text: "开始导入" });
   btn.addEventListener("click", async () => {
-    const path = input.value.trim();
-    if (!path) { clear(status); status.append(el("p", { class: "error", text: "请先填 PDF 路径" })); return; }
+    const paths = input.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    if (!paths.length) { clear(status); status.append(el("p", { class: "error", text: "请先填 PDF 路径" })); return; }
     btn.disabled = true;
     clear(status);
-    status.append(el("p", { class: "muted", text: "提交中…" }));
-    try {
-      const { job_id } = await postJSON("/papers/import", { pdf_path: path });
-      await pollJob(job_id, status);
-    } catch (err) {
-      errorState(status, err.message, null);
-    } finally {
-      btn.disabled = false;
+    // 同一次提交共用一个批次号 → 后端登记真实批次,地图"新着陆"按它识别
+    const batchId = "b" + Date.now().toString(36);
+    const finals = await Promise.all(paths.map(async (path) => {
+      const name = path.split(/[\\/]/).pop() || path;
+      const inner = el("div", {}, [el("p", { class: "muted", text: "提交中…" })]);
+      status.append(el("div", { class: "atom" }, [el("div", {}, [el("strong", { text: name })]), inner]));
+      try {
+        const { job_id } = await postJSON("/papers/import", { pdf_path: path, batch_id: batchId });
+        return await pollJob(job_id, inner);
+      } catch (err) {
+        errorState(inner, err.message, null);
+        return "failed";
+      }
+    }));
+    btn.disabled = false;
+    const ok = finals.filter((s) => s === "succeeded").length;
+    if (ok > 0) { // 全部终态且至少 1 篇成功 → 跳地图看着陆
+      try { sessionStorage.setItem("arriveAfterImport", "1"); } catch (err) { /* 私隐模式:跳过自动着陆 */ }
+      status.append(el("p", {}, [el("strong", { text: `本批 ${ok}/${paths.length} 篇已完成,正在打开知识地图…` })]));
+      setTimeout(() => { location.hash = "#/map"; }, 1000);
+    } else {
+      status.append(el("p", { class: "error", text: "本批没有成功的导入,未跳转地图。" }));
     }
   });
   box.append(input, btn, status);
   return box;
 }
 
+// 轮询到终态;返回 "succeeded" | "failed" | "timeout"(调用方据此决定是否跳地图)。
 async function pollJob(jobId, status) {
   for (let i = 0; i < 600; i++) {
     const job = await getJSON("/jobs/" + jobId);
@@ -44,15 +62,16 @@ async function pollJob(jobId, status) {
     if (job.status === "succeeded") {
       status.append(el("p", {}, ["完成,论文号 ", el("strong", { text: String(job.result) }), " ",
         el("a", { href: "#/papers/" + job.result }, "查看")]));
-      return;
+      return "succeeded";
     }
     if (job.status === "failed") {
       status.append(el("p", { class: "error", text: "失败:" + (job.error || "未知错误") }));
-      return;
+      return "failed";
     }
     await sleep(1000);
   }
   status.append(el("p", { class: "error", text: "超时,仍在运行 —— 稍后到藏书查看。" }));
+  return "timeout";
 }
 
 function searchSection() {
