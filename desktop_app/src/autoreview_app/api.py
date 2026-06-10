@@ -24,6 +24,7 @@ from .store.sqlite_index import get_paper, query_papers, reindex
 from .writing.gates import check_draft
 from .writing.ideation import load_angles
 from .elements import service as elements_service
+from .map import service as map_service
 from docdecomp.element_index import (
     build_index,
     get_element,
@@ -348,6 +349,33 @@ def create_app(
         done = [p.name for p in papers if (p / "authorship.json").exists()]
         return {"papers": len(papers), "with_authorship": len(done),
                 "pending": [p.name for p in papers if p.name not in set(done)]}
+
+    # ---- 知识地图(SP-Map):镜头布局 / 着陆 / 重排 / 阅读路线;全机械零 AI ----
+
+    def _check_lens(lens: str) -> None:
+        if lens not in map_service.ALL_LENSES:
+            raise HTTPException(status_code=400, detail=f"unknown lens: {lens}")
+        if lens in ("method", "material"):
+            _elements_db_or_503()  # 要素镜头依赖索引;topic/time/institution 不依赖
+
+    @app.get("/map")
+    def map_lens(lens: str = "topic") -> dict[str, Any]:
+        _check_lens(lens)
+        return map_service.lens_payload(config, lens)
+
+    @app.post("/map/relayout")
+    def map_relayout(lens: str = "topic") -> dict[str, Any]:
+        _check_lens(lens)
+        return map_service.relayout(config, lens)
+
+    @app.get("/map/arrivals")
+    def map_arrivals() -> dict[str, Any]:
+        return map_service.arrivals(config)
+
+    @app.get("/map/route")
+    def map_route(lens: str = "topic", cluster: str = "") -> dict[str, Any]:
+        _check_lens(lens)
+        return map_service.route(config, lens, cluster)
 
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
     return app
