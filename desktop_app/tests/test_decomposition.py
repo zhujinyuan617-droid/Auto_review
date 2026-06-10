@@ -221,3 +221,75 @@ def test_elements_empty_occurrences_falls_back_to_legacy(tmp_path: Path):
     assert view["source"] == "legacy"
     assert len(view["analyses"]) == 1
     assert view["analyses"][0]["evidence_atom_id"] == "E3-EVATOM-0001"
+
+
+def test_elements_all_mentioned_falls_back_to_legacy(tmp_path: Path):
+    """elements.json with occurrences all role='mentioned' → projection empty → legacy path.
+
+    Reproduces the 24-paper all-mentioned-review scenario: even though elements.json
+    has entries, no 'used' occurrence maps to any analysis/result facet, so
+    _elements_views returns None and assemble_decomposition uses evidence_atoms.
+    """
+    library = tmp_path / "library"
+    pid = "E4"
+    write_card(library, pid, title="Review Paper", doi="")
+    write_elements(library, pid, [
+        # all role='mentioned' — none are 'used', so projection produces nothing
+        {"facet": "analysis", "surface": "regression", "quote": "q1",
+         "reading_block_id": "E4-RB-0001", "role": "mentioned"},
+        {"facet": "finding", "surface": "T rises", "quote": "q2",
+         "reading_block_id": "E4-RB-0001", "role": "mentioned"},
+        # material facet 'used' — not in analysis/result facets, also excluded
+        {"facet": "material", "surface": "silica", "quote": "q3",
+         "reading_block_id": "E4-RB-0001", "role": "used"},
+    ])
+    write_evidence_atoms(library, pid, [
+        {"evidence_atom_id": "E4-EVATOM-0001", "atom_type": "method",
+         "minimal_claim": "GCMC simulation", "quote": "We used GCMC.",
+         "reading_block_id": "E4-RB-0001", "confidence": "high"},
+    ])
+    view = assemble_decomposition(library / pid)
+
+    # must fall back to legacy because element projection was empty
+    assert view["source"] == "legacy"
+    # legacy atoms should still be present
+    assert len(view["analyses"]) == 1
+    assert view["analyses"][0]["evidence_atom_id"] == "E4-EVATOM-0001"
+
+
+def test_characterization_and_preparation_in_analyses(tmp_path: Path):
+    """Occurrences with facet 'characterization' or 'preparation' appear in analyses.
+
+    M-3 broadening: user journey requires experimental-method detail including
+    characterization (e.g. XRD) and preparation (e.g. ball-milling).
+    """
+    library = tmp_path / "library"
+    pid = "E5"
+    write_card(library, pid, title="Synthesis Study", doi="")
+    write_elements(library, pid, [
+        {"facet": "characterization", "surface": "XRD analysis", "quote": "XRD was used.",
+         "reading_block_id": "E5-RB-0001", "role": "used"},
+        {"facet": "preparation", "surface": "ball-milling", "quote": "milled for 2 h.",
+         "reading_block_id": "E5-RB-0001", "role": "used"},
+        # finding still goes to results
+        {"facet": "finding", "surface": "Phase purity confirmed.", "quote": "pure phase.",
+         "reading_block_id": "E5-RB-0001", "role": "used"},
+    ])
+    view = assemble_decomposition(library / pid)
+
+    assert view["source"] == "elements"
+
+    analysis_facets = {a["atom_type"] for a in view["analyses"]}
+    assert "characterization" in analysis_facets, f"Got facets: {analysis_facets}"
+    assert "preparation" in analysis_facets, f"Got facets: {analysis_facets}"
+
+    # each atom's atom_type matches its declared facet
+    xrd_atoms = [a for a in view["analyses"] if a["atom_type"] == "characterization"]
+    assert xrd_atoms[0]["minimal_claim"] == "XRD analysis"
+
+    mill_atoms = [a for a in view["analyses"] if a["atom_type"] == "preparation"]
+    assert mill_atoms[0]["minimal_claim"] == "ball-milling"
+
+    # finding still lands in results, not analyses
+    result_facets = {r["atom_type"] for r in view["results"]}
+    assert result_facets == {"finding"}

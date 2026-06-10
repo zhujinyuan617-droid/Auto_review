@@ -12,7 +12,7 @@ _ANALYSIS_TYPES = {"method", "variable", "mechanism"}
 _RESULT_TYPES = {"result", "quantitative_result"}
 
 # elements.json facet sets
-_ELEMENT_ANALYSIS_FACETS = {"analysis", "simulation", "measurement"}
+_ELEMENT_ANALYSIS_FACETS = {"analysis", "simulation", "measurement", "characterization", "preparation"}
 _ELEMENT_RESULT_FACETS = {"finding"}
 
 
@@ -80,6 +80,11 @@ def _elements_views(
             else:
                 results.append(atom)
             counter += 1
+
+    # 现库存在"有要素但无本页可投影内容"的论文——含 24 篇全 mentioned 的综述;
+    # 投影为空时回退 legacy,等 finding 补抽后自然切换。
+    if not analyses and not results:
+        return None
 
     return analyses, results
 
