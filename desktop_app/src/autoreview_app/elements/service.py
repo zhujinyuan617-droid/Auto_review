@@ -94,7 +94,7 @@ def run_bootstrap(config: AppConfig, client: Any, report: Report = lambda m: Non
             report(f"{paper_dir.name} failed: {type(exc).__name__}")
     config.elements_data_dir.mkdir(parents=True, exist_ok=True)
     if config.elements_registry_path.exists():
-        report("registry exists: stream-matching new papers (no re-consolidation)")
+        report("registry exists: stream-matching all papers (no re-consolidation)")
         registry = load_registry(config.elements_registry_path)
         for paper_dir in papers:
             if (paper_dir / "elements.json").exists():

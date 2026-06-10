@@ -59,3 +59,14 @@ def test_bootstrap_second_run_skips_reconsolidation(tmp_path: Path):
     # 第二次只允许 1 次 AI 调用(S91 抽取);surfaces 全部 exact/alias 命中种子,
     # 不发生匹配 AI 调用,更绝不重新归并。
     assert client2.call_count == 1
+
+
+def test_run_elements_for_paper_with_zero_occurrences(tmp_path: Path):
+    library = tmp_path / "library"
+    paper_dir = write_reading_blocks(library, "S90")
+    cfg = AppConfig(library_dir=library)
+    client = SequencedFakeClient([{"paper_id": "S90", "elements": []}])
+    stats = service.run_elements_for_paper(paper_dir, client, cfg)
+    assert stats == {"occurrences": 0, "dropped": 0}
+    assert (paper_dir / "elements.json").exists()
+    assert cfg.elements_db.exists()  # index built even when empty
