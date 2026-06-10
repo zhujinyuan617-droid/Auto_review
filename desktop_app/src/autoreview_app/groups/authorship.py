@@ -36,8 +36,13 @@ def _pdf_fallback_affiliations(paper_dir: Path) -> list[str]:
     if not cb_path.is_file():
         return []
     try:
-        blocks = json.loads(cb_path.read_text(encoding="utf-8"))
+        data = json.loads(cb_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
+        return []
+    # 生产格式是 {"schema_version", "paper_id", "source", "blocks": [...]};
+    # 兼容裸 list(早期/测试形态)。其他形状一律视为不可用。
+    blocks = data.get("blocks") if isinstance(data, dict) else data
+    if not isinstance(blocks, list):
         return []
 
     seen: dict[str, None] = {}  # ordered dedupe
@@ -143,68 +148,73 @@ def populate_authorship(
             skipped_no_doi += 1
             continue
 
-        # --- try primary fetch ---
-        rec: dict[str, Any] | None = None
+        # --- 单篇隔离:任何一篇的坏数据/坏响应都不允许杀掉整批 ---
         try:
-            rec = fetch(doi)
-        except Exception:  # noqa: BLE001
-            rec = None
+            # --- try primary fetch ---
+            rec: dict[str, Any] | None = None
+            try:
+                rec = fetch(doi)
+            except Exception:  # noqa: BLE001
+                rec = None
 
-        # --- PDF fallback ---
-        if rec is None:
-            raw_affs = _pdf_fallback_affiliations(paper_dir)
-            if raw_affs:
-                rec = {
+            # --- PDF fallback ---
+            if rec is None:
+                raw_affs = _pdf_fallback_affiliations(paper_dir)
+                if raw_affs:
+                    rec = {
+                        "authors": [],
+                        "source": "pdf_front_page",
+                        "_raw_affs": raw_affs,
+                    }
+                else:
+                    failed += 1
+                    continue
+
+            # --- build authorship doc ---
+            paper_id = paper_dir.name
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+            if rec.get("source") == "pdf_front_page":
+                raw_affs = rec.get("_raw_affs") or []
+                institution_ids = resolve_institutions(raw_affs, registry, log_path)
+                doc: dict[str, Any] = {
+                    "paper_id": paper_id,
                     "authors": [],
                     "source": "pdf_front_page",
-                    "_raw_affs": raw_affs,
+                    "fetched_at": now,
+                    "raw_affiliations": raw_affs,
+                    "institution_ids": institution_ids,
                 }
+                pdf_fallback += 1
             else:
-                failed += 1
-                continue
+                authors_out = []
+                for author in rec.get("authors") or []:
+                    inst_ids = resolve_institutions(
+                        author.get("raw_affiliations") or [], registry, log_path
+                    )
+                    authors_out.append({
+                        "name": author.get("name", ""),
+                        "position": author.get("position", 0),
+                        "is_senior": author.get("is_senior", False),
+                        "raw_affiliations": author.get("raw_affiliations") or [],
+                        "institution_ids": inst_ids,
+                    })
+                doc = {
+                    "paper_id": paper_id,
+                    "authors": authors_out,
+                    "source": rec.get("source", "unknown"),
+                    "fetched_at": now,
+                }
+                populated += 1
 
-        # --- build authorship doc ---
-        paper_id = paper_dir.name
-        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-        if rec.get("source") == "pdf_front_page":
-            raw_affs = rec.get("_raw_affs") or []
-            institution_ids = resolve_institutions(raw_affs, registry, log_path)
-            doc: dict[str, Any] = {
-                "paper_id": paper_id,
-                "authors": [],
-                "source": "pdf_front_page",
-                "fetched_at": now,
-                "raw_affiliations": raw_affs,
-                "institution_ids": institution_ids,
-            }
-            pdf_fallback += 1
-        else:
-            authors_out = []
-            for author in rec.get("authors") or []:
-                inst_ids = resolve_institutions(
-                    author.get("raw_affiliations") or [], registry, log_path
-                )
-                authors_out.append({
-                    "name": author.get("name", ""),
-                    "position": author.get("position", 0),
-                    "is_senior": author.get("is_senior", False),
-                    "raw_affiliations": author.get("raw_affiliations") or [],
-                    "institution_ids": inst_ids,
-                })
-            doc = {
-                "paper_id": paper_id,
-                "authors": authors_out,
-                "source": rec.get("source", "unknown"),
-                "fetched_at": now,
-            }
-            populated += 1
-
-        # --- write output ---
-        out_path = paper_dir / "authorship.json"
-        out_path.write_text(
-            json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+            # --- write output ---
+            out_path = paper_dir / "authorship.json"
+            out_path.write_text(
+                json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception as exc:  # noqa: BLE001 — 记失败、继续下一篇
+            failed += 1
+            progress(f"{paper_dir.name} failed: {type(exc).__name__}: {exc}")
 
     save_registry(registry_path, registry)
     progress(

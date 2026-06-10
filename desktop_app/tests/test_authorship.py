@@ -17,10 +17,19 @@ from autoreview_app.groups.authorship import populate_authorship
 # ---------------------------------------------------------------------------
 
 def _make_content_blocks(paper_dir: Path, lines: list[str]) -> None:
-    """Write a minimal content_blocks.json with the given text lines."""
-    blocks = [{"text": line} for line in lines]
+    """Write content_blocks.json in the REAL production shape.
+
+    生产格式是 dict 容器({schema_version, paper_id, source, blocks});
+    早期夹具误写成裸 list,导致 dict 切片崩溃(KeyError: slice)在测试里隐身。
+    """
+    doc = {
+        "schema_version": "0.1.0",
+        "paper_id": paper_dir.name,
+        "source": "test",
+        "blocks": [{"text": line} for line in lines],
+    }
     (paper_dir / "content_blocks.json").write_text(
-        json.dumps(blocks, ensure_ascii=False), encoding="utf-8"
+        json.dumps(doc, ensure_ascii=False), encoding="utf-8"
     )
 
 
@@ -218,6 +227,41 @@ def test_populate_authorship_progress_called(tmp_path: Path):
     populate_authorship(lib, inst_dir, lambda doi: CANNED_REC_P1,
                         progress=messages.append)
     assert len(messages) >= 1  # at least one progress call (at 10 + at end)
+
+
+def test_populate_one_bad_paper_does_not_kill_batch(tmp_path: Path):
+    """坏数据单篇隔离:S01 的 fetch 返回畸形记录(authors 含 None),
+    旧实现会 AttributeError 杀全批;现在 S01 记 failed,S02 照常入库。"""
+    lib = tmp_path / "library"
+    inst_dir = tmp_path / "data" / "institutions"
+    write_card(lib, "S01", title="A", doi="10.1/aaa")
+    write_card(lib, "S02", title="B", doi="10.1/bbb")
+
+    def fetch(doi):
+        if doi == "10.1/aaa":
+            return {"authors": [None], "source": "openalex"}  # 畸形:author 不是 dict
+        return CANNED_REC_P1
+
+    messages: list[str] = []
+    result = populate_authorship(lib, inst_dir, fetch, progress=messages.append)
+    assert result["failed"] == 1
+    assert result["populated"] == 1
+    assert not (lib / "S01" / "authorship.json").exists()
+    assert (lib / "S02" / "authorship.json").exists()
+    assert any("S01 failed" in m for m in messages)
+
+
+def test_pdf_fallback_handles_dict_container_without_blocks(tmp_path: Path):
+    """content_blocks.json 是 dict 但没有 blocks 键 → 视为不可用,计 failed 不崩。"""
+    lib = tmp_path / "library"
+    inst_dir = tmp_path / "data" / "institutions"
+    write_card(lib, "S01", title="A", doi="10.1/aaa")
+    (lib / "S01" / "content_blocks.json").write_text(
+        json.dumps({"schema_version": "0.1.0", "paper_id": "S01"}), encoding="utf-8"
+    )
+    result = populate_authorship(lib, inst_dir, lambda doi: None)
+    assert result["failed"] == 1
+    assert not (lib / "S01" / "authorship.json").exists()
 
 
 def test_populate_skips_existing_unless_force(tmp_path: Path):
