@@ -136,3 +136,10 @@ a.back { font-size: 13px; color: #0969da; text-decoration: none; }
 .map-closeup-node:hover circle { stroke-width: 3.5; }
 .map-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #57606a; margin-top: 4px; }
 .map-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+
+/* ---- 导航顶部的地图首页入口(SP-Map 跟进:用户反馈入口难找) ---- */
+#nav a.nav-home {
+  font-weight: 700; color: #0969da; border-bottom: 1px solid #d0d7de;
+  margin-bottom: 6px; padding-top: 10px; padding-bottom: 10px;
+}
+#nav a.nav-home.active { background: #ddf4ff; border-left: 3px solid #0969da; }
