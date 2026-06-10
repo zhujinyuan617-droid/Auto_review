@@ -176,3 +176,78 @@ def test_judge_chunks_runs_concurrently_and_passes_candidates():
     assert n_ok == 2 and n_failed == 0
     assert len(client.threads) == 2                      # 真并发(两个不同线程)
     assert all("quartz" in p for p in client.payloads)   # 候选并集确实进了提示词
+
+
+# ---------------------------------------------------------------------------
+# Task 4: bulk_match_elements — end-to-end orchestrator
+# ---------------------------------------------------------------------------
+
+
+def test_bulk_match_end_to_end_and_idempotent(tmp_path: Path):
+    from docdecomp.element_matching import bulk_match_elements
+    reg = new_registry_from_seeds(SEEDS)
+    log = tmp_path / "log.jsonl"
+    p1, p2 = tmp_path / "S01", tmp_path / "S02"
+    _write_elements(p1, [
+        _occ("characterization", "XRD"),                    # exact
+        _occ("characterization", "powder X-ray diffraction"),  # AI → match
+        _occ("material", "kerogen type II"),                # AI → null → create
+        _occ("proposed:instrument", "weird gadget"),        # proposed → 直接 create,不上 AI
+    ])
+    _write_elements(p2, [_occ("material", "Kerogen Type II")])  # 去重共组
+
+    client = SequencedFakeClient([
+        # 两个 facet 各一块;块完成顺序不定,故两个响应都写全两类 surface,
+        # 引擎按 (facet, norm_key) 查组,查不到的回显键自然被忽略。
+        {"matches": [
+            {"surface": "powder X-ray diffraction",
+             "element_id": "elem:characterization/x-ray-diffraction"},
+            {"surface": "kerogen type II", "element_id": None},
+        ]},
+        {"matches": [
+            {"surface": "powder X-ray diffraction",
+             "element_id": "elem:characterization/x-ray-diffraction"},
+            {"surface": "kerogen type II", "element_id": None},
+        ]},
+    ])
+    stats = bulk_match_elements([p1, p2], reg, client, log, parallel=2)
+
+    d1 = json.loads((p1 / "elements.json").read_text(encoding="utf-8"))
+    ids = {o["surface"]: o["canonical_id"] for o in d1["occurrences"]}
+    assert ids["XRD"] == "elem:characterization/x-ray-diffraction"
+    assert ids["powder X-ray diffraction"] == "elem:characterization/x-ray-diffraction"
+    assert ids["kerogen type II"] == "elem:material/kerogen-type-ii"
+    assert ids["weird gadget"] == "elem:proposed:instrument/weird-gadget"
+    d2 = json.loads((p2 / "elements.json").read_text(encoding="utf-8"))
+    assert d2["occurrences"][0]["canonical_id"] == "elem:material/kerogen-type-ii"
+    assert stats["ai_calls"] == 2 and stats["created"] == 2
+    assert "powder X-ray diffraction" in reg["entries"]["elem:characterization/x-ray-diffraction"]["aliases"]
+
+    # 幂等:第二次零 AI、零新建、零写盘
+    stats2 = bulk_match_elements([p1, p2], reg, None, log, parallel=2)
+    assert stats2["ai_calls"] == 0 and stats2["created"] == 0 and stats2["papers_written"] == 0
+
+
+def test_bulk_match_no_client_creates_directly(tmp_path: Path):
+    from docdecomp.element_matching import bulk_match_elements
+    reg = new_registry_from_seeds(SEEDS)
+    p1 = tmp_path / "S01"
+    _write_elements(p1, [_occ("material", "montmorillonite-illite mixed layer")])
+    stats = bulk_match_elements([p1], reg, None, tmp_path / "log.jsonl", parallel=4)
+    assert stats["created"] == 1 and stats["ai_calls"] == 0
+
+
+def test_bulk_match_failed_chunk_left_unresolved(tmp_path: Path):
+    from docdecomp.element_matching import bulk_match_elements
+
+    class _AlwaysBoom:
+        def chat_json(self, messages, hint):
+            raise RuntimeError("429")
+
+    reg = new_registry_from_seeds(SEEDS)
+    p1 = tmp_path / "S01"
+    _write_elements(p1, [_occ("material", "kerogen type II")])
+    stats = bulk_match_elements([p1], reg, _AlwaysBoom(), tmp_path / "log.jsonl", parallel=2)
+    d1 = json.loads((p1 / "elements.json").read_text(encoding="utf-8"))
+    assert d1["occurrences"][0]["canonical_id"] is None      # 留空待重试
+    assert stats["created"] == 0 and stats["judge_failed_chunks"] >= 1

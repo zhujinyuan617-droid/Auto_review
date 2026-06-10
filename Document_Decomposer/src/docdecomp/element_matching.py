@@ -225,6 +225,71 @@ def _judge_chunks(
     return verdicts, failed, n_ok, n_failed
 
 
+def bulk_match_elements(
+    paper_dirs: list[Path], registry: dict, client, log_path: Path,
+    *, parallel: int = 8, chunk_size: int = 30,
+) -> dict:
+    """Bulk normalize: collect -> shortlist -> parallel judge -> SERIAL commit.
+
+    Registry mutation happens ONLY in the commit phase of this single call —
+    the single-writer rule stands. Caller still owns save_registry + build_index
+    (现有调用点的两行不动)。proposed:* facets never go to AI(直接 create)。
+    resolved_exact 由 collect 阶段就地完成,此处不计数(看 papers_written)。
+    """
+    docs, dirty, groups = collect_unresolved(paper_dirs, registry)
+    stats = {
+        "resolved_exact": 0, "resolved_ai": 0, "created": 0,
+        "ai_calls": 0, "judge_failed_chunks": 0, "papers_written": 0,
+        "groups_total": len(groups),
+    }
+
+    ai_groups = [
+        g for g in groups
+        if client is not None and not g["facet"].startswith("proposed:")
+    ]
+    for g in ai_groups:
+        g["candidates"] = _shortlist_candidates(registry, g["facet"], g["surface"])
+
+    by_facet: dict[str, list[list[dict]]] = {}
+    for facet in {g["facet"] for g in ai_groups}:
+        items = [g for g in ai_groups if g["facet"] == facet]
+        by_facet[facet] = _pack_chunks(items, chunk_size=chunk_size)
+    n_jobs = sum(len(c) for c in by_facet.values())
+
+    if n_jobs:
+        verdicts, failed, n_ok, n_failed = _judge_chunks(by_facet, client, parallel)
+    else:
+        verdicts, failed, n_ok, n_failed = {}, set(), 0, 0
+    stats["ai_calls"] = n_ok
+    stats["judge_failed_chunks"] = n_failed
+
+    # —— 串行落账(唯一注册表变更段)——
+    for g in groups:
+        key = (g["facet"], norm_key(g["surface"]))
+        if key in failed:
+            continue  # 本轮跳过,下次重跑自愈
+        eid = verdicts.get(key)
+        if (
+            eid
+            and eid in registry["entries"]
+            and registry["entries"][eid]["facet"] == g["facet"]
+        ):
+            eid = resolve_id(registry, eid)
+            add_alias(registry, eid, g["surface"], "auto-bulk", log_path)
+            stats["resolved_ai"] += len(g["refs"])
+        else:
+            eid = create_entry(registry, g["facet"], g["surface"], "auto-bulk", log_path)
+            stats["created"] += 1
+        for path, i in g["refs"]:
+            docs[path]["occurrences"][i]["canonical_id"] = eid
+            dirty.add(path)
+
+    for path in dirty:
+        write_json(path, docs[path])
+    stats["papers_written"] = len(dirty)
+    return stats
+
+
 def _shortlist_candidates(registry: dict, facet: str, surface: str, cap: int = 8) -> list[dict]:
     """Same-facet, non-redirected entries ranked by norm_key token overlap.
 
