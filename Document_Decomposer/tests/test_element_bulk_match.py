@@ -21,8 +21,15 @@ def test_shortlist_same_facet_ranked_by_overlap():
 def test_shortlist_zero_overlap_excluded_and_capped():
     reg = new_registry_from_seeds(SEEDS)
     assert _shortlist_candidates(reg, "characterization", "zzz qqq") == []
-    out = _shortlist_candidates(reg, "characterization", "x ray", cap=2)
-    assert len(out) <= 2
+    # cap 真正钉住切片:人工注册表,3 个同 facet 重叠条目
+    reg2 = {"schema_version": "0.1.0", "facets": ["material"], "entries": {}}
+    for name in ("alpha clay", "beta clay", "gamma clay"):
+        eid = f"elem:material/{name.replace(' ', '-')}"
+        reg2["entries"][eid] = {"id": eid, "facet": "material", "display_name": name,
+                                "aliases": [], "redirect_to": None,
+                                "origin": "seed", "human_locked": False}
+    assert len(_shortlist_candidates(reg2, "material", "clay sample", cap=2)) == 2
+    assert len(_shortlist_candidates(reg2, "material", "clay sample")) == 3
 
 
 def test_shortlist_skips_redirected_entries():
