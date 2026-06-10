@@ -50,3 +50,10 @@ def write_glossary(library: Path, paper_id: str, terms: list[dict]) -> None:
     paper_dir.mkdir(parents=True, exist_ok=True)
     doc = {"schema_version": "0.1.0", "paper_id": paper_id, "glossary": terms}
     (paper_dir / "glossary.json").write_text(json.dumps(doc), encoding="utf-8")
+
+
+def write_elements(library: Path, paper_id: str, occurrences: list[dict]) -> None:
+    paper_dir = library / paper_id
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    doc = {"schema_version": "0.1.0", "paper_id": paper_id, "occurrences": occurrences}
+    (paper_dir / "elements.json").write_text(json.dumps(doc), encoding="utf-8")
