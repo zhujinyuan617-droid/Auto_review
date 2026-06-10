@@ -20,6 +20,7 @@ from .element_registry import (
     create_entry,
     find_by_surface,
     load_registry,
+    norm_key,
     resolve_id,
     save_registry,
 )
@@ -29,9 +30,36 @@ from .io_utils import write_json
 METHOD_FACETS = ("preparation", "measurement", "simulation")
 
 
-def derive_classification(elements_doc: dict, registry: dict, top_n: int = 5) -> dict:
-    mat = Counter()
-    meth = Counter()
+def derive_classification(
+    elements_doc: dict, registry: dict,
+    top_objects: int = 6, top_methods: int = 7,
+) -> dict:
+    """统计 used+canonical 的 material/方法类要素 → 卡片标签。
+
+    排序规则(2026-06-10 抽样审计修正):
+    1. **发现句主角优先**——名字(含别名)出现在本篇任一 finding surface 里的要素
+       绝不被截掉(S43 的 propane 曾被截,而它正是"选择性序"发现的主角);
+    2. 计数降序;
+    3. **种子条目优先于自动条目**——顶层方法(MD/GCMC)多为种子词表,组件
+       (力场/恒温器)多为自动建档;旧版平票按字典序,'Darkrim' 曾挤掉 GCMC;
+    4. 名字字典序。
+    """
+    finding_text = " " + " ".join(
+        norm_key(str(occ.get("surface") or ""))
+        for occ in elements_doc.get("occurrences") or []
+        if occ.get("facet") == "finding"
+    ) + " "
+
+    def in_finding(entry: dict) -> bool:
+        for name in [entry["display_name"], *(entry.get("aliases") or [])]:
+            key = norm_key(str(name))
+            if key and f" {key} " in finding_text:
+                return True
+        return False
+
+    mat: Counter = Counter()
+    meth: Counter = Counter()
+    entries_by_name: dict[str, dict] = {}
     for occ in elements_doc.get("occurrences") or []:
         if occ.get("role") != "used" or not occ.get("canonical_id"):
             continue
@@ -39,15 +67,25 @@ def derive_classification(elements_doc: dict, registry: dict, top_n: int = 5) ->
         entry = registry["entries"].get(eid)
         if not entry:
             continue
+        entries_by_name.setdefault(entry["display_name"], entry)
         if entry["facet"] == "material":
             mat[entry["display_name"]] += 1
         elif entry["facet"] in METHOD_FACETS:
             meth[entry["display_name"]] += 1
 
-    def top(counter: Counter) -> list[str]:
-        return [name for name, _ in sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n]]
+    def top(counter: Counter, n: int) -> list[str]:
+        def key(kv):
+            name, count = kv
+            entry = entries_by_name[name]
+            return (
+                not in_finding(entry),
+                -count,
+                entry.get("origin") != "seed",
+                name,
+            )
+        return [name for name, _ in sorted(counter.items(), key=key)[:n]]
 
-    return {"research_objects": top(mat), "methods": top(meth)}
+    return {"research_objects": top(mat, top_objects), "methods": top(meth, top_methods)}
 
 
 def apply_derived_tags(card: dict, derived: dict) -> dict:

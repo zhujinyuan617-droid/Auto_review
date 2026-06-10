@@ -124,8 +124,34 @@ class TestDeriveClassification:
         # Each material appears once → alphabetical tie-break applies
         occs = [_occ(eid) for eid in ids]
         elements_doc = {"occurrences": occs}
-        result = derive_classification(elements_doc, reg, top_n=3)
+        result = derive_classification(elements_doc, reg, top_objects=3)
         assert len(result["research_objects"]) == 3
+
+    def test_finding_protagonist_never_truncated(self, tmp_path):
+        # 审计 S43:propane 是"选择性序"发现的主角,却被 top-5 字典序截掉。
+        reg = _make_registry(tmp_path)
+        log = tmp_path / "log.jsonl"
+        names = ["aaa-gas", "bbb-gas", "ccc-gas", "ddd-gas", "eee-gas", "propane"]
+        ids = [create_entry(reg, "material", n, "test", log) for n in names]
+        occs = [_occ(eid) for eid in ids]
+        occs.append({"facet": "finding", "surface": "selectivity order: propane > ethane > methane",
+                     "quote": "q", "reading_block_id": "S43-RB-0001", "role": "used",
+                     "quote_verified": True, "digits_verified": False, "values": [],
+                     "canonical_id": None})
+        result = derive_classification({"occurrences": occs}, reg, top_objects=3)
+        assert "propane" in result["research_objects"]       # 主角保席
+        assert result["research_objects"][0] == "propane"    # 且排最前
+
+    def test_seed_method_beats_auto_component_on_tie(self, tmp_path):
+        # 审计 S307:平票字典序让 'Darkrim' 组件挤掉 GCMC;种子条目应优先。
+        reg = _make_registry(tmp_path)
+        log = tmp_path / "log.jsonl"
+        comp = create_entry(reg, "simulation", "Aardvark thermostat", "auto-bulk", log)
+        seed = create_entry(reg, "simulation", "zz-grand canonical monte carlo", "test", log)
+        reg["entries"][seed]["origin"] = "seed"
+        occs = [_occ(comp), _occ(seed)]
+        result = derive_classification({"occurrences": occs}, reg, top_methods=2)
+        assert result["methods"][0] == "zz-grand canonical monte carlo"
 
     def test_count_descending_order(self, tmp_path):
         reg = _make_registry(tmp_path)
