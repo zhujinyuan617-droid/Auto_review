@@ -420,7 +420,7 @@ def _default_bootstrap_runner(config: AppConfig) -> BootstrapRunner:
     def run(report: Callable[[str], None]) -> dict[str, Any]:
         from .ai.client import build_ai_client
         client = build_ai_client(elements_service.engine_root())
-        return elements_service.run_bootstrap(config, client, report)
+        return elements_service.run_bootstrap(config, client, report, parallel=6)  # 显式声明并行度——统计屏"1–2 小时"文案押在这上面
     return run
 
 

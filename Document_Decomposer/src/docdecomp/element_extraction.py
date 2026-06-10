@@ -259,7 +259,8 @@ def backfill_findings(paper_dir: Path, client: Any, seeds: dict) -> dict:
     tagged_dropped = [{**d, "phase": "finding_backfill"} for d in new_dropped]
 
     data["occurrences"] = non_finding + finding_occs
-    data["dropped"] = (data.get("dropped") or []) + tagged_dropped
+    # 幂等——重跑不累积本阶段的 dropped。
+    data["dropped"] = [d for d in (data.get("dropped") or []) if d.get("phase") != "finding_backfill"] + tagged_dropped
 
     write_json(elements_path, data)
     return {"added": len(finding_occs), "removed_old": removed_old, "dropped": len(new_dropped)}

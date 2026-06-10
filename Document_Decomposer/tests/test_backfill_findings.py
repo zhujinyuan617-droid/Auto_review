@@ -256,6 +256,52 @@ def test_fabricated_quote_dropped_with_phase_field(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# Test: dropped list does not accumulate across re-runs (idempotent dropped)
+# ---------------------------------------------------------------------------
+
+def test_backfill_dropped_not_accumulating(tmp_path: Path):
+    """Re-running backfill with the same canned response must not accumulate dropped
+    entries with phase='finding_backfill'. After two runs, exactly 1 such entry."""
+    blocks = [
+        ("S15-RB-0001", "Water reduces methane adsorption in real text.", "conclusion"),
+    ]
+    paper_dir = write_reading_blocks(tmp_path, "S15", blocks)
+    _write_elements(paper_dir, [])
+
+    # AI fabricates a quote — guaranteed to fail quote verification.
+    ai_response = {
+        "paper_id": "S15",
+        "elements": [
+            {
+                "facet": "finding",
+                "surface": "fabricated finding",
+                "quote": "This sentence does not appear in any reading block.",
+                "reading_block_id": "S15-RB-0001",
+                "role": "used",
+            }
+        ],
+    }
+
+    # --- First run ---
+    client1 = SequencedFakeClient([ai_response])
+    backfill_findings(paper_dir, client1, SEEDS)
+
+    data_after_first = json.loads((paper_dir / "elements.json").read_text(encoding="utf-8"))
+    backfill_drops_after_first = [d for d in data_after_first["dropped"] if d.get("phase") == "finding_backfill"]
+    assert len(backfill_drops_after_first) == 1
+
+    # --- Second run (same canned response) ---
+    client2 = SequencedFakeClient([ai_response])
+    backfill_findings(paper_dir, client2, SEEDS)
+
+    data_after_second = json.loads((paper_dir / "elements.json").read_text(encoding="utf-8"))
+    backfill_drops_after_second = [d for d in data_after_second["dropped"] if d.get("phase") == "finding_backfill"]
+    assert len(backfill_drops_after_second) == 1, (
+        f"Expected exactly 1 finding_backfill dropped after 2 runs, got {len(backfill_drops_after_second)}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test: missing elements.json → ValueError
 # ---------------------------------------------------------------------------
 

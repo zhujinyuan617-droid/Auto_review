@@ -82,7 +82,10 @@ def run_elements_for_paper(paper_dir: Path, client: Any, config: AppConfig,
     card_path = paper_dir / "literature_card.json"
     if card_path.exists():
         report("deriving card tags")
-        _derive_tags_for_paper(paper_dir, registry)
+        try:
+            _derive_tags_for_paper(paper_dir, registry)
+        except Exception as exc:  # noqa: BLE001 — 单篇失败不挡导入
+            report(f"{paper_dir.name} tag derivation failed: {type(exc).__name__}")
     return {"occurrences": len(result["occurrences"]), "dropped": len(result["dropped"])}
 
 
@@ -161,7 +164,10 @@ def run_bootstrap(config: AppConfig, client: Any, report: Report = lambda m: Non
 
     report("deriving card tags for all papers")
     for paper_dir in papers:
-        _derive_tags_for_paper(paper_dir, registry)
+        try:
+            _derive_tags_for_paper(paper_dir, registry)
+        except Exception as exc:  # noqa: BLE001 — 单篇失败不挡全局
+            report(f"{paper_dir.name} tag derivation failed: {type(exc).__name__}")
 
     report(f"done: index over {n} papers; {len(flagged)} superbucket flags")
     return {"papers_indexed": n, "extracted": extracted, "extract_failed": failed,
