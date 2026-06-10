@@ -87,6 +87,9 @@ def test_collect_exact_hits_dangling_and_dedup(tmp_path: Path):
     assert ("material", "frankenite-x99") in keys     # 悬空被收集 → 可自愈
     kerogen = next(g for g in groups if g["surface"].lower().startswith("kerogen"))
     assert len(kerogen["refs"]) == 2                  # 两篇引用同一组
+    occ_ball = docs[p1 / "elements.json"]["occurrences"][2]
+    assert occ_ball["canonical_id"] == "elem:preparation/ball-milling"
+    assert (p2 / "elements.json") not in dirty        # p2 无任何就地改写
 
 
 def test_collect_repoints_redirected_canonical(tmp_path: Path):
