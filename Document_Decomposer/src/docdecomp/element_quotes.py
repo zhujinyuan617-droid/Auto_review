@@ -5,17 +5,24 @@ Two levels (both ellipsis-aware), in the spirit of scripts/audit/audit_card_grou
   Docling stray digits / punctuation noise.
 - tight  (letters+digits): proves digits were not altered; ONLY tight-verified
   quotes may feed numeric value parsing (元原则: 宁可漏, 不可编).
+Digit-only fragments (no letters) cannot be existence-checked at the loose level;
+they are covered only by the tight check, so a fabricated digit string yields
+digits_verified=False (values then never parsed) while quote_verified may stay True.
 """
 from __future__ import annotations
+
+import unicodedata
 
 MIN_FRAGMENT_CHARS = 12
 
 
 def norm_loose(s: str) -> str:
+    s = unicodedata.normalize("NFKC", s)
     return "".join(ch.lower() for ch in s if ch.isalpha())
 
 
 def norm_tight(s: str) -> str:
+    s = unicodedata.normalize("NFKC", s)
     return "".join(ch.lower() for ch in s if ch.isalnum())
 
 
