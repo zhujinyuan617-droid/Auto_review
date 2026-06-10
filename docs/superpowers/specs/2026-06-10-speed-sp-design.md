@@ -82,6 +82,16 @@
   与今晚 stream 模式的 ~2 h 对照;目标量级:**分钟级**(估 1–3 min,待实测)。
 - audit_element_buckets 跑一遍,超限桶数不高于 stream 基线。
 
+**实测(2026-06-10 05:27–05:30,261 篇真库,--parallel 64)**:
+- 墙上 **3.2 分钟**(含 Phase A 重抽 261 篇 finding + Phase B bulk 归一 + 索引重建);
+  归一段本身约 1 分钟,对照 stream 串行尾巴实测 ~2 小时(28–40 s/篇)。
+- bulk match: groups=4573, ai_calls=**154**, resolved_ai=625, created=4049,
+  failed_chunks=0, papers_written=260;`done: 261 ok, 0 failed`。
+- 自愈核查:全库 occurrences=8688,canonical_id **null=0、悬空=0**(注册表 4937 条)——
+  当晚两次中断(补抽进程被杀、桌面尾巴被杀)残局一次收清。
+- 大桶审计:6 条超限(shale 22 / NMR 18 / MD 16 / ML 15 / coal 14 / MC 14),
+  均为真高频概念,待步骤 9 人工复核;无 stream 完整基线可比(stream 从未跑完过全库)。
+
 ## 7. 范围外(另立项)
 
 - **快模型换档**(分章节/阅读块换非推理模型):最大单点杠杆,但需质量抽样对比,单独走。
