@@ -2,11 +2,15 @@ import { getJSON, postJSON } from "/assets/api.js";
 import { el, clear, empty, errorState, loading } from "/assets/ui.js";
 
 // 屏A 检索 = 三栏工作台 + 搜索顶栏 + 列表⇄表格切换(spec §8)。
+// v1.1 联动计数(map-home spec §4c):每次选中集变化 POST /elements/refine,
+// 左树全量刷新「与已选组合的交集计数」;零结果灰显沉底;热度 top-10 + 折叠分层。
 // 状态:selected = 已选要素 chip;mode = "list"|"table"。
 // 跨视图保留选择(模块级状态):离开再回来时 chips 不清空,这是有意设计。
 let selected = [];
 let mode = "list";
 let querySeq = 0;
+
+const TOP_VISIBLE = 10; // 每 facet 默认展开的热度条目数
 
 export async function render(view, params) {
   loading(view);
@@ -29,11 +33,25 @@ export async function render(view, params) {
   const chipsRow = el("div");
   const layout = el("div", { class: "elements-layout" });
   const tree = el("div", { class: "facet-tree card-box" });
+  const treeFilterBox = el("input", { class: "search", placeholder: "过滤要素树…" });
+  const treeBody = el("div");
+  tree.append(treeFilterBox, treeBody);
   const results = el("div", { class: "elements-results" });
   const detail = el("div", { class: "elements-detail card-box" });
   layout.append(tree, results, detail);
   view.append(searchBox, chipsRow, layout);
   empty(detail, "点结果里的论文,看命中要素的逐字原文。");
+
+  // 联动计数状态(render 级):counts=null 表示 refine 还没回来,树先用全库静态计数。
+  let counts = null;
+  let treeFilter = "";
+  const openAll = new Set();  // 「展开全部」目前展开着的 facet(重画后保持)
+  const openOnes = new Set(); // 「各 1 篇」二级折叠展开着的 facet
+
+  treeFilterBox.addEventListener("input", () => {
+    treeFilter = treeFilterBox.value.trim().toLowerCase();
+    drawTree();
+  });
 
   drawTree();
   drawChips();
@@ -68,35 +86,89 @@ export async function render(view, params) {
     }
   }
 
+  function isSelected(id) { return selected.some((s) => s.id === id); }
+
+  function countOf(item) { return counts ? (counts[item.id] ?? 0) : item.papers; }
+
+  function itemLabel(it) {
+    const on = isSelected(it.id);
+    const attrs = { text: `${on ? "☑" : "☐"} ${it.display_name} (${it.n})` };
+    if (!on && it.n === 0) attrs.class = "muted"; // 零结果灰显;已选条目不灰
+    const label = el("label", attrs);
+    label.addEventListener("click", () => toggle({ ...it, slug: it.slug || it.id.split("/")[1] }));
+    return label;
+  }
+
+  function fold(summaryText, openSet, facetId) {
+    const det = el("details");
+    if (openSet.has(facetId)) det.open = true;
+    det.addEventListener("toggle", () => { if (det.open) openSet.add(facetId); else openSet.delete(facetId); });
+    det.append(el("summary", { text: summaryText }));
+    return det;
+  }
+
   function drawTree() {
-    clear(tree);
+    clear(treeBody);
     for (const f of facets) {
-      tree.append(el("h4", { text: `${f.id}(${f.total_elements})` }));
-      for (const item of f.top) {
-        const on = selected.some((s) => s.id === item.id);
-        const label = el("label", { text: `${on ? "☑" : "☐"} ${item.display_name} (${item.papers})` });
-        label.addEventListener("click", () => toggle({ ...item, facet: f.id, slug: item.slug || item.id.split("/")[1] }));
-        tree.append(label);
+      let items = f.top.map((item) => ({ ...item, facet: f.id, n: countOf(item) }));
+      if (treeFilter) {
+        items = items.filter((it) => (it.display_name || "").toLowerCase().includes(treeFilter)
+          || it.id.toLowerCase().includes(treeFilter));
+        if (!items.length) continue; // 整个 facet 无命中就不画
       }
+      items.sort((a, b) => b.n - a.n || (a.display_name || "").localeCompare(b.display_name || ""));
+      treeBody.append(el("h4", { text: `${f.id}(${f.total_elements})` }));
+      if (treeFilter) { // 过滤时平铺所有命中项,不折叠
+        for (const it of items) treeBody.append(itemLabel(it));
+        continue;
+      }
+      const sel = items.filter((it) => isSelected(it.id));
+      const rest = items.filter((it) => !isSelected(it.id));
+      const hot = rest.filter((it) => it.n >= 2);
+      const ones = rest.filter((it) => it.n === 1);
+      const zeros = rest.filter((it) => it.n === 0);
+      for (const it of sel) treeBody.append(itemLabel(it)); // 已选置顶,永远可见
+      for (const it of hot.slice(0, TOP_VISIBLE)) treeBody.append(itemLabel(it));
+      const hidden = Math.max(hot.length - TOP_VISIBLE, 0) + ones.length + zeros.length;
+      if (!hidden) continue;
+      const det = fold(`展开全部 (${hidden})`, openAll, f.id);
+      for (const it of hot.slice(TOP_VISIBLE)) det.append(itemLabel(it));
+      if (ones.length) { // 长尾分层:各只命中 1 篇的条目再收一级
+        const sub = fold(`其余 ${ones.length} 项(各 1 篇)`, openOnes, f.id);
+        for (const it of ones) sub.append(itemLabel(it));
+        det.append(sub);
+      }
+      for (const it of zeros) det.append(itemLabel(it)); // 零结果沉到组末
+      treeBody.append(det);
     }
   }
 
   async function runQuery() {
     const seq = ++querySeq;
-    if (!selected.length) return empty(results, "从左栏勾选要素,或在上方搜索 — 命中论文会列在这里。");
-    loading(results);
-    let data;
+    const ids = selected.map((s) => s.id);
+    if (ids.length) loading(results);
+    else empty(results, "从左栏勾选要素,或在上方搜索 — 命中论文会列在这里。");
+    let refine, data;
     try {
-      data = await postJSON("/elements/query", { element_ids: selected.map((s) => s.id) });
+      // refine 给左树计数 + 命中论文;query 给表格/详情要用的逐字 matches
+      [refine, data] = await Promise.all([
+        postJSON("/elements/refine", { element_ids: ids }),
+        ids.length ? postJSON("/elements/query", { element_ids: ids }) : Promise.resolve(null),
+      ]);
       if (seq !== querySeq) return; // superseded by a newer selection
     } catch (err) {
       if (seq !== querySeq) return;
       return errorState(results, err.message, runQuery);
     }
+    counts = refine.counts;
+    drawTree(); // 联动:计数徽标 + 灰显沉底 + 折叠分层全量重算
+    if (!ids.length) return;
     clear(results);
-    results.append(el("p", { class: "muted", text: `命中 ${data.papers.length} 篇(AND 组合)` }));
-    if (mode === "table") return drawTable(data);
-    for (const p of data.papers) {
+    results.append(el("p", { class: "muted", text: `命中 ${refine.papers.length} 篇(AND 组合)` }));
+    const byId = new Map(data.papers.map((p) => [p.paper_id, p]));
+    const rows = refine.papers.map((pid) => byId.get(pid) || { paper_id: pid, matches: [] });
+    if (mode === "table") return drawTable({ papers: rows });
+    for (const p of rows) {
       const row = el("div", { class: "paper-row" }, [
         el("b", { text: p.paper_id }), " ", titles[p.paper_id] || "",
       ]);

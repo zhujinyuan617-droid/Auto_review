@@ -267,3 +267,48 @@ def paper_elements(db_path: Path, paper_id: str) -> dict:
         )
     return {"paper_id": paper_id,
             "groups": [{"facet": f, "items": items} for f, items in sorted(groups.items())]}
+
+
+def refine_counts(db_path: Path, element_ids: list[str],
+                  role: str | None = "used") -> tuple[list[str], dict[str, int]]:
+    """Linked facet counts for the search screen (v1.1, spec §4c).
+
+    P = papers containing ALL selected element_ids (query_combination semantics,
+    role-filtered); empty selection means P = every indexed paper. counts maps
+    EVERY element_id in the elements table to len(P ∩ papers(element)) under the
+    same role filter — zero entries included, so the UI can gray them out.
+    role=None means no role filter (the API's "all").
+    """
+    ids = list(dict.fromkeys(element_ids))  # intersection HAVING needs unique ids
+    clause, role_args = _role_clause(role)
+    conn = _conn(db_path)
+    try:
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            pids = [r["paper_id"] for r in conn.execute(
+                f"""SELECT o.paper_id FROM occurrences o
+                    WHERE o.element_id IN ({placeholders}) {clause}
+                    GROUP BY o.paper_id
+                    HAVING COUNT(DISTINCT o.element_id) = ?""",
+                [*ids, *role_args, len(ids)],
+            ).fetchall()]
+        else:
+            pids = [r["paper_id"] for r in conn.execute(
+                "SELECT DISTINCT paper_id FROM occurrences").fetchall()]
+        counts = {r["element_id"]: 0 for r in conn.execute(
+            "SELECT element_id FROM elements").fetchall()}
+        if pids:
+            pid_placeholders = ",".join("?" for _ in pids)
+            rows = conn.execute(
+                f"""SELECT o.element_id AS id, COUNT(DISTINCT o.paper_id) AS n
+                    FROM occurrences o
+                    WHERE o.paper_id IN ({pid_placeholders}) {clause}
+                    GROUP BY o.element_id""",
+                [*pids, *role_args],
+            ).fetchall()
+            for r in rows:
+                if r["id"] in counts:
+                    counts[r["id"]] = r["n"]
+    finally:
+        conn.close()
+    return sorted(pids), counts

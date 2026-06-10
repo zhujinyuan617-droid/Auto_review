@@ -33,6 +33,7 @@ from docdecomp.element_index import (
     query_cooccurrence,
     query_overview,
     query_stats,
+    refine_counts,
     search_elements,
 )
 from docdecomp.element_registry import (
@@ -287,6 +288,12 @@ def create_app(
     def elements_query(req: ElementsQuery) -> dict:
         ids = list(dict.fromkeys(req.element_ids))  # dedup, preserve order (engine requires unique ids)
         return query_combination(_elements_db_or_503(), ids, req.role)
+
+    @app.post("/elements/refine")
+    def elements_refine(req: ElementsQuery) -> dict[str, Any]:
+        # 检索屏联动计数(spec §4c):一次返回交集命中论文 + 全树条件计数
+        papers, counts = refine_counts(_elements_db_or_503(), req.element_ids, _role(req.role))
+        return {"papers": papers, "counts": counts}
 
     @app.post("/elements/bootstrap")
     def elements_bootstrap() -> dict:
