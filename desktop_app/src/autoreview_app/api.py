@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable
 
@@ -22,6 +23,24 @@ from .groups.store import load_authors
 from .store.sqlite_index import get_paper, query_papers, reindex
 from .writing.gates import check_draft
 from .writing.ideation import load_angles
+from .elements import service as elements_service
+from docdecomp.element_index import (
+    build_index,
+    get_element,
+    paper_elements,
+    query_combination,
+    query_cooccurrence,
+    query_overview,
+    query_stats,
+    search_elements,
+)
+from docdecomp.element_registry import (
+    add_alias as registry_add_alias,
+    load_registry,
+    merge_entries,
+    rename_entry,
+    save_registry,
+)
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -36,6 +55,9 @@ DraftRunner = Callable[[dict[str, Any], Callable[[str], None]], dict[str, Any]]
 
 # An author-populate runner takes (progress) and returns {found, skipped}.
 AuthorPopulateRunner = Callable[[Callable[[str], None]], dict[str, Any]]
+
+# A bootstrap runner takes (progress) and returns a summary dict.
+BootstrapRunner = Callable[[Callable[[str], None]], dict[str, Any]]
 
 
 class ImportRequest(BaseModel):
@@ -66,6 +88,17 @@ class ApiKeyRequest(BaseModel):
     api_key: str
 
 
+class ElementsQuery(BaseModel):
+    element_ids: list[str]
+    role: str = "used"
+
+
+class ElementUpdate(BaseModel):
+    display_name: str | None = None
+    add_alias: str | None = None
+    merge_into: str | None = None
+
+
 def _record_to_dict(rec: CitationRecord) -> dict[str, Any]:
     return {
         "title": rec.title, "doi": rec.doi, "year": rec.year,
@@ -79,10 +112,13 @@ def create_app(
     search_runner: SearchRunner | None = None,
     draft_runner: DraftRunner | None = None,
     author_populate_runner: AuthorPopulateRunner | None = None,
+    elements_bootstrap_runner: BootstrapRunner | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Auto Review Desktop", version="0.1.0")
     jobs = JobRegistry()
     runner = import_runner if import_runner is not None else _default_import_runner(config)
+    if import_runner is None:
+        runner = _wrap_import_with_elements(runner, config)
     populate_runner = author_populate_runner if author_populate_runner is not None else _default_author_populate_runner(config)
     search_exec = search_runner if search_runner is not None else _default_search_runner(config)
     draft_exec = draft_runner if draft_runner is not None else _default_draft_runner(config)
@@ -198,6 +234,74 @@ def create_app(
     def setup_manifest() -> dict[str, Any]:
         return consent_summary()
 
+    def _elements_db_or_503() -> Path:
+        if not config.elements_db.exists():
+            raise HTTPException(status_code=503, detail="elements index not built")
+        return config.elements_db
+
+    def _role(role: str) -> str | None:
+        # query param convention: "used"(默认) / "mentioned" / "all"(=不过滤)
+        return None if role == "all" else role
+
+    @app.get("/elements/overview")
+    def elements_overview(top_n: int = 5, role: str = "used") -> dict:
+        return query_overview(_elements_db_or_503(), top_n=top_n, role=_role(role))
+
+    @app.get("/elements/coverage")
+    def elements_coverage() -> dict:
+        return elements_service.coverage(config)
+
+    @app.get("/elements/stats")
+    def elements_stats(facet: str, role: str = "used") -> dict:
+        return {"facet": facet, "items": query_stats(_elements_db_or_503(), facet, _role(role))}
+
+    @app.get("/elements")
+    def elements_search(q: str = "", facet: str | None = None) -> dict:
+        return {"elements": search_elements(_elements_db_or_503(), q, facet)}
+
+    @app.post("/elements/query")
+    def elements_query(req: ElementsQuery) -> dict:
+        ids = list(dict.fromkeys(req.element_ids))  # dedup, preserve order (engine requires unique ids)
+        return query_combination(_elements_db_or_503(), ids, req.role)
+
+    @app.post("/elements/bootstrap")
+    def elements_bootstrap() -> dict:
+        _runner = elements_bootstrap_runner or _default_bootstrap_runner(config)
+        return {"job_id": jobs.submit(_runner)}
+
+    @app.get("/elements/{facet}/{slug}/cooccurrence")
+    def element_cooccurrence(facet: str, slug: str, role: str = "used") -> dict:
+        return query_cooccurrence(_elements_db_or_503(), facet, slug, role)
+
+    @app.get("/elements/{facet}/{slug}")
+    def element_detail(facet: str, slug: str, role: str = "all") -> dict:
+        detail = get_element(_elements_db_or_503(), facet, slug, role=_role(role))
+        if detail is None:
+            raise HTTPException(status_code=404, detail="unknown element")
+        return detail
+
+    @app.put("/elements/{facet}/{slug}")
+    def element_update(facet: str, slug: str, req: ElementUpdate) -> dict:
+        registry = load_registry(config.elements_registry_path)
+        eid = f"elem:{facet}/{slug}"
+        if eid not in registry["entries"]:
+            raise HTTPException(status_code=404, detail="unknown element")
+        if req.merge_into and req.merge_into not in registry["entries"]:
+            raise HTTPException(status_code=400, detail="merge target unknown")
+        if req.display_name:
+            rename_entry(registry, eid, req.display_name, config.elements_log_path)
+        if req.add_alias:
+            registry_add_alias(registry, eid, req.add_alias, "human", config.elements_log_path)
+        if req.merge_into:
+            merge_entries(registry, eid, req.merge_into, "human", config.elements_log_path)
+        save_registry(config.elements_registry_path, registry)
+        build_index(config.library_dir, registry, config.elements_db)
+        return {"entry": registry["entries"][eid]}
+
+    @app.get("/papers/{paper_id}/elements")
+    def paper_elements_route(paper_id: str) -> dict:
+        return paper_elements(_elements_db_or_503(), paper_id)
+
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
     return app
 
@@ -261,4 +365,32 @@ def _default_import_runner(config: AppConfig) -> ImportRunner:
             progress=progress,
         )
 
+    return run
+
+
+def _default_bootstrap_runner(config: AppConfig) -> BootstrapRunner:
+    def run(report: Callable[[str], None]) -> dict[str, Any]:
+        from .ai.client import build_ai_client
+        client = build_ai_client(elements_service.engine_root())
+        return elements_service.run_bootstrap(config, client, report)
+    return run
+
+
+def _wrap_import_with_elements(base: ImportRunner, config: AppConfig) -> ImportRunner:
+    """After a successful default import, extract+index elements. Failures mark
+    the paper pending (elements_pending.json) instead of failing the job (P0)."""
+    def run(pdf_path: Path, report: Callable[[str], None]) -> str:
+        paper_id = base(pdf_path, report)
+        paper_dir = config.library_dir / paper_id
+        if (paper_dir / "language_gate.json").exists():
+            return paper_id
+        try:
+            from .ai.client import build_ai_client
+            client = build_ai_client(elements_service.engine_root())
+            elements_service.run_elements_for_paper(paper_dir, client, config, report)
+        except Exception as exc:  # noqa: BLE001 — graceful: paper stays usable
+            report(f"elements pending: {type(exc).__name__}")
+            (paper_dir / "elements_pending.json").write_text(
+                json.dumps({"error": str(exc)}, ensure_ascii=False), encoding="utf-8")
+        return paper_id
     return run

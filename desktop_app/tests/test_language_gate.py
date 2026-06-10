@@ -16,7 +16,7 @@ def _package(tmp_path: Path, paper_id: str, texts: list[str]) -> Path:
 def test_cjk_ratio():
     assert cjk_ratio("pure english text") == 0.0
     assert cjk_ratio("纯中文文本") == 1.0
-    assert 0.4 < cjk_ratio("ab中文cd文本测试ef") < 0.6  # 6 CJK / 14 CJK+ASCII ≈ 0.43
+    assert 0.4 < cjk_ratio("ab中文cd文本测试ef") < 0.6  # 6 CJK / 12 CJK+ASCII = 0.50
 
 
 def test_english_package_passes(tmp_path: Path):
