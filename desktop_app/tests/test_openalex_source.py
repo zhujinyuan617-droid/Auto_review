@@ -115,3 +115,23 @@ def test_fetch_authorship_skips_non_dict_items():
     # "bad" string is skipped; only Carol remains
     assert len(result["authors"]) == 1
     assert result["authors"][0]["name"] == "Carol"
+
+
+def test_single_author_is_senior_and_position_one():
+    """A paper with exactly one author must have position==1 AND is_senior==True."""
+    single_response = {
+        "authorships": [
+            {
+                "author": {"display_name": "Solo Author"},
+                "institutions": [{"display_name": "Some University"}],
+            }
+        ]
+    }
+    url = OPENALEX_WORKS_URL.format(doi=DOI_LOWER)
+    transport = FakeTransport(json_responses={url: single_response})
+    result = OpenAlexSource().fetch_authorship(DOI, transport)
+    assert result is not None
+    assert len(result["authors"]) == 1
+    author = result["authors"][0]
+    assert author["position"] == 1
+    assert author["is_senior"] is True

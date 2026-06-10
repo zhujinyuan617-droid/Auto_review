@@ -320,8 +320,8 @@ def create_app(
         return paper_elements(_elements_db_or_503(), paper_id)
 
     @app.post("/authorship/populate")
-    def authorship_populate() -> dict:
-        runner = authorship_runner or _default_authorship_runner(config)
+    def authorship_populate(force: bool = False) -> dict:
+        runner = authorship_runner if authorship_runner is not None else _default_authorship_runner(config, force)
         return {"job_id": jobs.submit(runner)}
 
     @app.get("/authorship/coverage")
@@ -349,7 +349,7 @@ def _default_author_populate_runner(config: AppConfig) -> AuthorPopulateRunner:
     return run
 
 
-def _default_authorship_runner(config: AppConfig) -> AuthorshipRunner:
+def _default_authorship_runner(config: AppConfig, force: bool = False) -> AuthorshipRunner:
     def run(progress: Callable[[str], None]) -> dict[str, Any]:
         import time as _time
         from .discovery.sources.openalex import OpenAlexSource
@@ -363,7 +363,7 @@ def _default_authorship_runner(config: AppConfig) -> AuthorshipRunner:
             return source.fetch_authorship(doi, transport)
 
         return populate_authorship(
-            config.library_dir, config.institutions_data_dir, _polite_fetch, progress,
+            config.library_dir, config.institutions_data_dir, _polite_fetch, progress, force=force,
         )
     return run
 

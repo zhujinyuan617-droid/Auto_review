@@ -218,3 +218,40 @@ def test_populate_authorship_progress_called(tmp_path: Path):
     populate_authorship(lib, inst_dir, lambda doi: CANNED_REC_P1,
                         progress=messages.append)
     assert len(messages) >= 1  # at least one progress call (at 10 + at end)
+
+
+def test_populate_skips_existing_unless_force(tmp_path: Path):
+    """Second run without force skips existing authorship.json; force=True re-fetches."""
+    lib = tmp_path / "library"
+    inst_dir = tmp_path / "data" / "institutions"
+    write_card(lib, "S01", title="A", doi="10.1/aaa")
+    write_card(lib, "S02", title="B", doi="10.1/bbb")
+
+    fetch_calls: list[str] = []
+
+    def counting_fetch(doi: str) -> dict:
+        fetch_calls.append(doi)
+        return CANNED_REC_P1
+
+    # --- First run: both papers populated from scratch ---
+    result1 = populate_authorship(lib, inst_dir, counting_fetch)
+    assert result1["populated"] == 2
+    assert result1["skipped_existing"] == 0
+    assert len(fetch_calls) == 2
+    fetched_at_s01_first = _read_authorship(lib / "S01")["fetched_at"]
+
+    # --- Second run (no force): fetch must NOT be called; skipped_existing == 2 ---
+    fetch_calls.clear()
+    result2 = populate_authorship(lib, inst_dir, counting_fetch)
+    assert len(fetch_calls) == 0, "fetch should not be called when authorship.json already exists"
+    assert result2["skipped_existing"] == 2
+    assert result2["populated"] == 0
+    # Files must be unchanged
+    assert _read_authorship(lib / "S01")["fetched_at"] == fetched_at_s01_first
+
+    # --- Third run (force=True): fetch called again; files updated ---
+    fetch_calls.clear()
+    result3 = populate_authorship(lib, inst_dir, counting_fetch, force=True)
+    assert len(fetch_calls) == 2, "fetch should be called for all papers when force=True"
+    assert result3["populated"] == 2
+    assert result3["skipped_existing"] == 0

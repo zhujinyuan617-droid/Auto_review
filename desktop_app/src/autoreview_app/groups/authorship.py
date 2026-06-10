@@ -100,6 +100,7 @@ def populate_authorship(
     institutions_dir: Path,
     fetch: Callable[[str], dict[str, Any] | None],
     progress: Callable[[str], None] = lambda m: None,
+    force: bool = False,
 ) -> dict[str, int]:
     """Populate authorship.json for each paper in library_dir.
 
@@ -119,11 +120,15 @@ def populate_authorship(
         p.parent for p in library_dir.glob("*/literature_card.json")
     )
 
-    populated = pdf_fallback = skipped_no_doi = failed = 0
+    populated = pdf_fallback = skipped_no_doi = failed = skipped_existing = 0
 
     for i, paper_dir in enumerate(paper_dirs):
         if i > 0 and i % 10 == 0:
             progress(f"{i}/{len(paper_dirs)} processed")
+
+        if not force and (paper_dir / "authorship.json").exists():
+            skipped_existing += 1
+            continue
 
         # --- resolve DOI ---
         card_path = paper_dir / "literature_card.json"
@@ -204,11 +209,13 @@ def populate_authorship(
     save_registry(registry_path, registry)
     progress(
         f"done: {populated} populated, {pdf_fallback} pdf_fallback, "
-        f"{skipped_no_doi} skipped_no_doi, {failed} failed"
+        f"{skipped_no_doi} skipped_no_doi, {failed} failed, "
+        f"{skipped_existing} skipped_existing"
     )
     return {
         "populated": populated,
         "pdf_fallback": pdf_fallback,
         "skipped_no_doi": skipped_no_doi,
         "failed": failed,
+        "skipped_existing": skipped_existing,
     }

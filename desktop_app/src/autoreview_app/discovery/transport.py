@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.parse
 import urllib.request
 from typing import Any, Protocol
 
-USER_AGENT = "AutoReviewDesktop/0.1 (mailto:unknown@example.com)"
+USER_AGENT = "AutoReviewDesktop/0.1 (mailto:" + os.environ.get("AUTOREVIEW_MAILTO", "contact@autoreview.local") + ")"
 
 
 class Transport(Protocol):
