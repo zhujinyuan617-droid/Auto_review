@@ -6,21 +6,37 @@ Covers:
 - apply_derived_tags: writes research_objects + methods through to card.
 - derive_topic_ids: case-insensitive surface match, unresolved tags skipped,
   duplicates deduplicated.
+- resolve_topics_bulk: library-wide domain_tags → registry topic entries, AI path,
+  no-client path, idempotency.
 """
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 import pytest
 
-from docdecomp.card_tags import apply_derived_tags, derive_classification, derive_topic_ids
+from docdecomp.card_tags import (
+    apply_derived_tags,
+    derive_classification,
+    derive_topic_ids,
+    resolve_topics_bulk,
+)
 from docdecomp.element_registry import (
     create_entry,
     element_id,
     find_by_surface,
     load_seeds,
     new_registry_from_seeds,
+    save_registry,
 )
+from docdecomp.io_utils import write_json
+
+# Pull in the fake client
+_TESTS_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_TESTS_DIR))
+from _fake_ai import SequencedFakeClient
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -247,3 +263,191 @@ class TestDeriveTopicIds:
         card = {"classification": {"domain_tags": ["adsorption", "nanopore"]}}
         ids = derive_topic_ids(card, reg)
         assert ids == [id_a, id_b]
+
+
+# ---------------------------------------------------------------------------
+# Helpers for resolve_topics_bulk tests
+# ---------------------------------------------------------------------------
+
+def _make_library(tmp_path: Path, cards: list[dict]) -> Path:
+    """Create a minimal library dir with numbered paper subdirs each containing
+    a literature_card.json.
+    """
+    lib = tmp_path / "library"
+    lib.mkdir()
+    for i, card in enumerate(cards):
+        paper_dir = lib / f"P{i+1:02d}"
+        paper_dir.mkdir()
+        write_json(paper_dir / "literature_card.json", card)
+    return lib
+
+
+def _make_registry_file(tmp_path: Path, reg: dict) -> Path:
+    """Write registry.json to a data-dir and return data-dir."""
+    data_dir = tmp_path / "data_elements"
+    data_dir.mkdir(exist_ok=True)
+    reg_path = data_dir / "registry.json"
+    save_registry(reg_path, reg)
+    return reg_path
+
+
+# ---------------------------------------------------------------------------
+# resolve_topics_bulk
+# ---------------------------------------------------------------------------
+
+class TestResolveTopicsBulk:
+    def test_exact_match_no_ai(self, tmp_path):
+        """Tag already in registry → resolved_exact, card updated, no AI calls."""
+        reg = new_registry_from_seeds(_seeds())
+        log_tmp = tmp_path / "log.jsonl"
+        eid = create_entry(reg, "topic", "shale gas", "seed", log_tmp)
+
+        cards = [{"classification": {"domain_tags": ["shale gas"]}}]
+        lib = _make_library(tmp_path, cards)
+        reg_path = _make_registry_file(tmp_path, reg)
+        log_path = tmp_path / "registry_log.jsonl"
+
+        stats = resolve_topics_bulk(lib, reg_path, log_path, client=None)
+        assert stats["resolved_exact"] == 1
+        assert stats["created"] == 0
+        assert stats["cards_updated"] == 1
+        assert stats["ai_calls"] == 0
+
+        card_data = json.loads((lib / "P01" / "literature_card.json").read_text(encoding="utf-8"))
+        assert eid in card_data["classification"]["topic_ids"]
+
+    def test_unresolved_no_client_creates_entry(self, tmp_path):
+        """Tag NOT in registry, client=None → create_entry with origin auto-stream."""
+        reg = new_registry_from_seeds(_seeds())
+
+        cards = [{"classification": {"domain_tags": ["unknown novel tag"]}}]
+        lib = _make_library(tmp_path, cards)
+        reg_path = _make_registry_file(tmp_path, reg)
+        log_path = tmp_path / "registry_log.jsonl"
+
+        stats = resolve_topics_bulk(lib, reg_path, log_path, client=None)
+        assert stats["created"] == 1
+        assert stats["resolved_exact"] == 0
+        assert stats["cards_updated"] == 1
+
+        # Card must have topic_ids
+        card_data = json.loads((lib / "P01" / "literature_card.json").read_text(encoding="utf-8"))
+        assert len(card_data["classification"]["topic_ids"]) == 1
+
+    def test_ai_maps_surface_to_existing_entry(self, tmp_path):
+        """AI maps unresolved surface to existing entry → resolved_ai, alias added."""
+        reg = new_registry_from_seeds(_seeds())
+        log_tmp = tmp_path / "log.jsonl"
+        eid = create_entry(reg, "topic", "shale gas", "seed", log_tmp)
+
+        cards = [{"classification": {"domain_tags": ["shale gas extraction"]}}]
+        lib = _make_library(tmp_path, cards)
+        reg_path = _make_registry_file(tmp_path, reg)
+        log_path = tmp_path / "registry_log.jsonl"
+
+        fake_client = SequencedFakeClient([
+            {"matches": [{"surface": "shale gas extraction", "element_id": eid}]}
+        ])
+
+        stats = resolve_topics_bulk(lib, reg_path, log_path, client=fake_client)
+        assert stats["resolved_ai"] == 1
+        assert stats["ai_calls"] == 1
+        assert stats["created"] == 0
+        assert stats["cards_updated"] == 1
+
+        card_data = json.loads((lib / "P01" / "literature_card.json").read_text(encoding="utf-8"))
+        assert eid in card_data["classification"]["topic_ids"]
+
+    def test_ai_null_response_creates_entry(self, tmp_path):
+        """AI returns null for surface → create_entry (origin='auto-stream')."""
+        reg = new_registry_from_seeds(_seeds())
+
+        cards = [{"classification": {"domain_tags": ["truly new concept"]}}]
+        lib = _make_library(tmp_path, cards)
+        reg_path = _make_registry_file(tmp_path, reg)
+        log_path = tmp_path / "registry_log.jsonl"
+
+        fake_client = SequencedFakeClient([
+            {"matches": [{"surface": "truly new concept", "element_id": None}]}
+        ])
+
+        stats = resolve_topics_bulk(lib, reg_path, log_path, client=fake_client)
+        assert stats["created"] == 1
+        assert stats["ai_calls"] == 1
+        assert stats["cards_updated"] == 1
+
+    def test_two_cards_one_existing_one_new(self, tmp_path):
+        """Two cards: one tag known, one unknown (no client). Both get topic_ids."""
+        reg = new_registry_from_seeds(_seeds())
+        log_tmp = tmp_path / "log.jsonl"
+        eid = create_entry(reg, "topic", "shale gas", "seed", log_tmp)
+
+        cards = [
+            {"classification": {"domain_tags": ["shale gas"]}},
+            {"classification": {"domain_tags": ["clay minerals"]}},
+        ]
+        lib = _make_library(tmp_path, cards)
+        reg_path = _make_registry_file(tmp_path, reg)
+        log_path = tmp_path / "registry_log.jsonl"
+
+        stats = resolve_topics_bulk(lib, reg_path, log_path, client=None)
+        assert stats["resolved_exact"] == 1
+        assert stats["created"] == 1
+        assert stats["cards_updated"] == 2
+
+    def test_idempotent_second_run(self, tmp_path):
+        """Running twice: second run all exact, ai_calls=0, cards_updated=0."""
+        reg = new_registry_from_seeds(_seeds())
+
+        cards = [{"classification": {"domain_tags": ["shale gas"]}}]
+        lib = _make_library(tmp_path, cards)
+        reg_path = _make_registry_file(tmp_path, reg)
+        log_path = tmp_path / "registry_log.jsonl"
+
+        # First run
+        resolve_topics_bulk(lib, reg_path, log_path, client=None)
+        # Second run
+        stats2 = resolve_topics_bulk(lib, reg_path, log_path, client=None)
+        assert stats2["resolved_exact"] >= 1
+        assert stats2["ai_calls"] == 0
+        assert stats2["cards_updated"] == 0
+
+    def test_deduplicates_domain_tags(self, tmp_path):
+        """Same tag appearing twice in a card's domain_tags → topic_ids deduped."""
+        reg = new_registry_from_seeds(_seeds())
+        log_tmp = tmp_path / "log.jsonl"
+        eid = create_entry(reg, "topic", "shale gas", "seed", log_tmp)
+
+        cards = [{"classification": {"domain_tags": ["shale gas", "shale gas"]}}]
+        lib = _make_library(tmp_path, cards)
+        reg_path = _make_registry_file(tmp_path, reg)
+        log_path = tmp_path / "registry_log.jsonl"
+
+        stats = resolve_topics_bulk(lib, reg_path, log_path, client=None)
+        card_data = json.loads((lib / "P01" / "literature_card.json").read_text(encoding="utf-8"))
+        topic_ids = card_data["classification"]["topic_ids"]
+        assert topic_ids.count(eid) == 1
+
+    def test_card_without_domain_tags_not_updated(self, tmp_path):
+        """Card with no domain_tags key → topic_ids set to [] but card unchanged if already empty."""
+        reg = new_registry_from_seeds(_seeds())
+
+        cards = [{"classification": {}}]  # no domain_tags
+        lib = _make_library(tmp_path, cards)
+        reg_path = _make_registry_file(tmp_path, reg)
+        log_path = tmp_path / "registry_log.jsonl"
+
+        stats = resolve_topics_bulk(lib, reg_path, log_path, client=None)
+        # No changes needed; cards_updated should be 0
+        assert stats["cards_updated"] == 0
+
+    def test_returns_all_counter_keys(self, tmp_path):
+        """Return dict has all required keys."""
+        reg = new_registry_from_seeds(_seeds())
+        lib = _make_library(tmp_path, [])
+        reg_path = _make_registry_file(tmp_path, reg)
+        log_path = tmp_path / "registry_log.jsonl"
+
+        stats = resolve_topics_bulk(lib, reg_path, log_path, client=None)
+        for key in ("tags_total", "resolved_exact", "resolved_ai", "created", "cards_updated", "ai_calls"):
+            assert key in stats, f"missing key: {key}"
