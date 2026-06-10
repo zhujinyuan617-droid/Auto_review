@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import AppConfig
+from .continents import CONTINENT_LABELS, continent_of
 from .graph import (
     LENS_FACETS,
     element_names,
@@ -26,10 +27,8 @@ from .graph import (
 from .layout import (
     SCHEMA_VERSION,
     fingerprint,
-    fr_layout,
     incremental_place,
     radial_layout,
-    spread_clusters,
 )
 
 # v4(Wave-3 ①):元素镜头布点换确定性径向(权重向心+区内年轮);灰点收「待构建」区
@@ -206,7 +205,12 @@ def _paper_institutions(paper_dir: Path) -> list[str]:
 
 
 def _institution_lens_payload(config: AppConfig) -> dict:
-    """机构镜头:每篇归到出现最多的机构;仅 1 篇的机构归「其他」区。"""
+    """机构镜头 v2(Wave-3 ④):五大洲分区——论文 → 主机构 → 国别 → 洲。
+
+    主机构 = 该篇机构中库内论文数最多者(平票按 id);无机构数据或国别未知
+    → "__unknown__" 区(机构信息缺失)。区内年轮、权重向心同元素镜头。
+    点大小 = 主机构在库内的论文数("大点 = 同机构产出多")。
+    """
     inst_papers: dict[str, list[str]] = {}
     paper_insts: dict[str, list[str]] = {}
     for paper_dir in _all_paper_dirs(config):
@@ -215,47 +219,67 @@ def _institution_lens_payload(config: AppConfig) -> dict:
         for i in insts:
             inst_papers.setdefault(i, []).append(paper_dir.name)
 
-    multi = {i for i, ps in inst_papers.items() if len(ps) > 1}
+    reg = _institution_registry(config)
 
-    def _primary(insts: list[str]) -> str:
-        cands = [i for i in insts if i in multi]
-        if not cands:
-            return "__other__"
-        return sorted(cands, key=lambda i: (-len(inst_papers[i]), i))[0]
+    def _primary(insts: list[str]) -> str | None:
+        if not insts:
+            return None
+        return sorted(insts, key=lambda i: (-len(inst_papers.get(i, [])), i))[0]
 
-    labels = {pid: _primary(insts) for pid, insts in paper_insts.items()}
-    edges = []
-    for i in sorted(multi):
-        ps = sorted(inst_papers[i])
-        for a_idx, a in enumerate(ps):
-            for b in ps[a_idx + 1:]:
-                edges.append((a, b, 1.0))
-    pos = fr_layout(sorted(paper_insts), edges, labels, iters=PARAMS["iters"], seed=PARAMS["seed"])
-    pos = spread_clusters(pos, labels)
+    labels: dict[str, str] = {}
+    primary_of: dict[str, str | None] = {}
+    for pid, insts in paper_insts.items():
+        prim = _primary(insts)
+        primary_of[pid] = prim
+        cont = continent_of((reg.get(prim) or {}).get("country_code")) if prim else None
+        labels[pid] = f"cont:{cont}" if cont else "__unknown__"
 
-    inst_names = _institution_names(config)
+    years = _paper_years(config)
+    members: dict[str, list[str]] = {}
+    for pid in sorted(paper_insts):
+        members.setdefault(labels[pid], []).append(pid)
+    order_key = {pid: (years.get(pid, 9999), pid) for pid in paper_insts}
+    pos = radial_layout(members, order_key, pinned=("__unknown__",))
+
     nodes = [
         {"id": pid, "x": round(pos[pid][0], 4), "y": round(pos[pid][1], 4),
-         "cluster": labels[pid], "size": float(len(paper_insts[pid])),
-         "lit": bool(paper_insts[pid])}
+         "cluster": labels[pid],
+         "size": float(len(inst_papers.get(primary_of[pid], []))) if primary_of[pid] else 0.0,
+         "lit": bool(paper_insts[pid]),
+         "year": years.get(pid)}
         for pid in sorted(paper_insts)
     ]
     counts: dict[str, int] = {}
+    prim_count: dict[str, dict[str, int]] = {}
     for n in nodes:
-        counts[n["cluster"]] = counts.get(n["cluster"], 0) + 1
-    clusters = [
-        {"id": c, "label": ("其他(孤篇机构)" if c == "__other__" else inst_names.get(c, c.rsplit("/", 1)[-1])),
-         "n": counts[c]}
-        for c in sorted(counts)
-    ]
+        c = n["cluster"]
+        counts[c] = counts.get(c, 0) + 1
+        prim = primary_of[n["id"]]
+        if prim:
+            bucket = prim_count.setdefault(c, {})
+            bucket[prim] = bucket.get(prim, 0) + 1
+
+    def _top_insts(c: str) -> list[dict]:
+        items = sorted(prim_count.get(c, {}).items(), key=lambda t: (-t[1], t[0]))[:5]
+        return [{"id": i, "name": (reg.get(i) or {}).get("display_name", i.rsplit("/", 1)[-1]),
+                 "papers": k} for i, k in items]
+
+    clusters = []
+    for c in sorted(counts):
+        if c == "__unknown__":
+            clusters.append({"id": c, "label": "机构信息缺失", "n": counts[c], "nodata": True})
+        else:
+            cont_key = c.split(":", 1)[1]
+            clusters.append({"id": c, "label": CONTINENT_LABELS.get(cont_key, cont_key),
+                             "n": counts[c], "top_institutions": _top_insts(c)})
     return {"schema_version": SCHEMA_VERSION, "lens": "institution", "lenses": ALL_LENSES,
             "nodes": nodes, "clusters": clusters}
 
 
-def _institution_names(config: AppConfig) -> dict[str, str]:
+def _institution_registry(config: AppConfig) -> dict[str, dict]:
     try:
         reg = json.loads(config.institutions_registry_path.read_text(encoding="utf-8"))
-        return {e["id"]: e["display_name"] for e in (reg.get("entries") or {}).values()}
+        return {e["id"]: e for e in (reg.get("entries") or {}).values() if e.get("id")}
     except (OSError, ValueError):
         return {}
 
@@ -290,9 +314,14 @@ def lens_payload(config: AppConfig, lens: str, force: bool = False) -> dict:
         payload = _generic_cache(config, lens, feats_like,
                                  lambda: _time_lens_payload(config), force=force)
     elif lens == "institution":
+        # 指纹带国别:补查国别后缓存自动失效重算(洲分区取决于 country_code)
+        reg = _institution_registry(config)
         feats_like = {}
         for paper_dir in _all_paper_dirs(config):
-            feats_like[paper_dir.name] = set(_paper_institutions(paper_dir))
+            feats_like[paper_dir.name] = {
+                f"{i}@{(reg.get(i) or {}).get('country_code') or '?'}"
+                for i in _paper_institutions(paper_dir)
+            }
         payload = _generic_cache(config, lens, feats_like,
                                  lambda: _institution_lens_payload(config), force=force)
     else:
@@ -477,7 +506,7 @@ def _apply_meta(config: AppConfig, lens: str, payload: dict) -> dict:
         key = _members_key(members)
         c["members_key"] = key
         entry = meta.get(key)
-        if entry is None and not c.get("misc") and not c.get("unbuilt"):
+        if entry is None and not c.get("misc") and not c.get("unbuilt") and not c.get("nodata"):
             mset = set(members)
             best, best_j = None, 0.5
             for k, e in meta.items():
@@ -537,7 +566,7 @@ def describe_clusters(config: AppConfig, lens: str, client) -> dict:
 
     todo = []
     for c in payload.get("clusters") or []:
-        if c.get("misc") or c.get("unbuilt") or c.get("description"):
+        if c.get("misc") or c.get("unbuilt") or c.get("nodata") or c.get("description"):
             continue
         members = members_by_cluster.get(c["id"], [])
         todo.append({

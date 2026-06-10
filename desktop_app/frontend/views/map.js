@@ -548,7 +548,7 @@ export async function render(view) {
     if (c.label_overridden) {
       sideTitle.append(el("span", { class: "map-badge-human", text: "人工", title: "人工命名,永久优先" }));
     }
-    if (S.hasBackendClusters && !c.misc && !c.unbuilt) {
+    if (S.hasBackendClusters && !c.misc && !c.unbuilt && !c.nodata) {
       const btn = el("button", { class: "map-rename-btn", text: "改名", title: "为这个区起个永久名字(优先于自动命名)" });
       btn.addEventListener("click", () => renameUI(c));
       sideTitle.append(btn);
@@ -694,6 +694,27 @@ export async function render(view) {
       "暂无要素数据(该机构论文的要素未构建)。");
   }
 
+  // 五大洲面板:本洲高产机构榜,每行 <details> 展开才拉该机构的要素画像
+  function continentInstitutionsSection(c) {
+    const box = el("div", { class: "map-panel-sec" }, [
+      el("h4", { class: "map-facet-head", text: "本洲高产机构(展开看研究面貌)" }),
+    ]);
+    for (const inst of c.top_institutions) {
+      const det = el("details");
+      det.append(el("summary", {}, [
+        inst.name, el("span", { class: "map-side-meta", text: ` ×${inst.papers} 篇` }),
+      ]));
+      let loaded = false;
+      det.addEventListener("toggle", () => {
+        if (!det.open || loaded) return;
+        loaded = true;
+        det.append(institutionSection(inst.id));
+      });
+      box.append(det);
+    }
+    return box;
+  }
+
   function regionElementsSection(c) {
     return facetProfileSection("本区高频要素",
       `/map/region-elements?lens=${encodeURIComponent(S.lens)}&cluster=${encodeURIComponent(c.id)}`,
@@ -708,20 +729,25 @@ export async function render(view) {
       body.append(descSlot);
       fillRegionDesc(c, descSlot);
       S.regionPanel = { cluster: c, slot: descSlot };
-      // 本区高频要素(Wave-3 ②:统计屏总览的新家;misc 区成员太杂,不画画像)
-      if (S.hasBackendClusters && !c.misc && S.lens !== "institution") {
+      // 本区高频要素(Wave-3 ②:统计屏总览的新家;misc/nodata 区成员太杂,不画画像)
+      if (S.hasBackendClusters && !c.misc && !c.nodata) {
         body.append(regionElementsSection(c));
       }
       // 年代跨度(年轮口径:区心最老、区缘最新)+ 该时期库内首现要素(折叠懒加载)
       const years = c.members.map((n) => n.year).filter((y) => y != null);
-      if (years.length && S.lens !== "institution") {
+      if (years.length) {
         const y0 = Math.min(...years), y1 = Math.max(...years);
         body.append(el("div", { class: "map-side-meta",
           text: `年代跨度 ${y0}–${y1}(区内年轮:靠区心更老,靠区缘更新)` }));
-        if (!c.misc) body.append(firstSeenSection(y0, y1));
+        if (!c.misc && !c.nodata) body.append(firstSeenSection(y0, y1));
       }
-      if (S.lens === "institution" && !String(c.id).startsWith("__")) {
-        body.append(institutionSection(String(c.id)));
+      // 机构镜头(Wave-3 ④ 五大洲):本洲高产机构,每行展开看"机构×要素"研究面貌
+      if (S.lens === "institution" && c.top_institutions && c.top_institutions.length) {
+        body.append(continentInstitutionsSection(c));
+      }
+      if (c.nodata) {
+        body.append(el("p", { class: "muted",
+          text: "这些论文还没有机构信息(作者机构未拉取,或机构国别未能识别)。" }));
       }
       const routeSlot = el("div");
       body.append(routeSlot);

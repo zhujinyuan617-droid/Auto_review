@@ -124,19 +124,55 @@ def _write_authorship(lib: Path, pid: str, inst_ids: list[str]):
     (lib / pid / "authorship.json").write_text(json.dumps(doc), encoding="utf-8")
 
 
-def test_institution_lens_groups_and_other(tmp_path: Path):
+def _write_institutions_registry(cfg: AppConfig, entries: dict):
+    """entries: inst_id -> country_code(None=未补查)。"""
+    cfg.institutions_registry_path.parent.mkdir(parents=True, exist_ok=True)
+    reg = {"schema_version": "0.1.0", "facets": ["institution"], "entries": {
+        i: {"id": i, "facet": "institution",
+            "display_name": i.rsplit("/", 1)[-1].upper(),
+            "aliases": [], "redirect_to": None,
+            **({"country_code": cc} if cc else {})}
+        for i, cc in entries.items()
+    }}
+    cfg.institutions_registry_path.write_text(json.dumps(reg), encoding="utf-8")
+
+
+def test_institution_lens_continents(tmp_path: Path):
+    # Wave-3 ④:论文 → 主机构 → 国别 → 洲;无机构数据 → __unknown__(nodata)
     client, cfg = _client(tmp_path)
-    for pid in ("S01", "S02", "S03"):
-        _write_card(cfg.library_dir, pid)
+    for pid, year in (("S01", 2018), ("S02", 2020), ("S03", 2021), ("S04", None)):
+        _write_card(cfg.library_dir, pid, year=year)
     _write_authorship(cfg.library_dir, "S01", ["elem:institution/mit"])
     _write_authorship(cfg.library_dir, "S02", ["elem:institution/mit"])
-    _write_authorship(cfg.library_dir, "S03", ["elem:institution/lonely-u"])
+    _write_authorship(cfg.library_dir, "S03", ["elem:institution/tsinghua"])
+    # S04 无 authorship.json
+    _write_institutions_registry(cfg, {
+        "elem:institution/mit": "US",
+        "elem:institution/tsinghua": "CN",
+    })
     body = client.get("/map?lens=institution").json()
     nodes = {n["id"]: n for n in body["nodes"]}
-    assert nodes["S01"]["cluster"] == nodes["S02"]["cluster"] == "elem:institution/mit"
-    assert nodes["S03"]["cluster"] == "__other__"
-    labels = {c["id"]: c["label"] for c in body["clusters"]}
-    assert "其他" in labels["__other__"]
+    assert nodes["S01"]["cluster"] == nodes["S02"]["cluster"] == "cont:north-america"
+    assert nodes["S03"]["cluster"] == "cont:asia"
+    assert nodes["S04"]["cluster"] == "__unknown__" and not nodes["S04"]["lit"]
+    assert nodes["S01"]["year"] == 2018  # 年轮数据随节点下发
+    by_id = {c["id"]: c for c in body["clusters"]}
+    assert by_id["cont:north-america"]["label"] == "北美洲"
+    top = by_id["cont:north-america"]["top_institutions"]
+    assert top[0]["papers"] == 2 and top[0]["id"] == "elem:institution/mit"
+    assert by_id["__unknown__"].get("nodata") is True
+
+
+def test_institution_lens_cache_invalidates_on_country_enrichment(tmp_path: Path):
+    # 国别补查写回注册表后,机构镜头缓存指纹必须失效并重算分区
+    client, cfg = _client(tmp_path)
+    _write_card(cfg.library_dir, "S01")
+    _write_authorship(cfg.library_dir, "S01", ["elem:institution/mit"])
+    body1 = client.get("/map?lens=institution").json()
+    assert body1["nodes"][0]["cluster"] == "__unknown__"  # 注册表还没有国别
+    _write_institutions_registry(cfg, {"elem:institution/mit": "US"})
+    body2 = client.get("/map?lens=institution").json()
+    assert body2["nodes"][0]["cluster"] == "cont:north-america"
 
 
 def test_relayout_recomputes(tmp_path: Path, monkeypatch):
