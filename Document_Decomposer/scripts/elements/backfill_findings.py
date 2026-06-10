@@ -23,7 +23,7 @@ if str(SRC) not in sys.path:
 from docdecomp.ai_client import OpenAICompatibleClient, load_ai_config  # noqa: E402
 from docdecomp.element_extraction import backfill_findings  # noqa: E402
 from docdecomp.element_index import build_index  # noqa: E402
-from docdecomp.element_matching import match_paper_elements  # noqa: E402
+from docdecomp.element_matching import bulk_match_elements, match_paper_elements  # noqa: E402
 from docdecomp.element_registry import load_registry, load_seeds, save_registry  # noqa: E402
 
 
@@ -37,6 +37,8 @@ def main() -> int:
                     help="single paper id (e.g. S09); default: all papers with elements.json")
     ap.add_argument("--parallel", type=int, default=6,
                     help="parallel extraction workers (default: 6; 1 = serial)")
+    ap.add_argument("--match-mode", choices=["bulk", "stream"], default="bulk",
+                    help="phase-B normalization: bulk (parallel judging, default) or legacy per-paper stream")
     ap.add_argument("--data-dir", default=str(ROOT / "data" / "elements"),
                     help="directory for registry.json + index.db (default: <repo>/data/elements)")
     args = ap.parse_args()
@@ -106,16 +108,29 @@ def main() -> int:
 
     if registry_path.exists() and ok:
         registry = load_registry(registry_path)
-        matched = 0
-        for paper_dir in ok:
-            try:
-                match_paper_elements(paper_dir, registry, client, log_path)
-                matched += 1
-            except Exception as exc:  # noqa: BLE001
-                print(f"[{paper_dir.name}] match FAILED: {type(exc).__name__}: {exc}", flush=True)
+        if args.match_mode == "bulk":
+            all_papers = [p.parent for p in sorted(library.glob("*/elements.json"))]
+            mstats = bulk_match_elements(
+                all_papers, registry, client, log_path, parallel=args.parallel)
+            print(
+                f"bulk match: groups={mstats['groups_total']} "
+                f"ai_calls={mstats['ai_calls']} created={mstats['created']} "
+                f"failed_chunks={mstats['judge_failed_chunks']} "
+                f"papers_written={mstats['papers_written']}",
+                flush=True,
+            )
+        else:
+            matched = 0
+            for paper_dir in ok:
+                try:
+                    match_paper_elements(paper_dir, registry, client, log_path)
+                    matched += 1
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[{paper_dir.name}] match FAILED: {type(exc).__name__}: {exc}", flush=True)
+            print(f"stream match: {matched} papers re-matched", flush=True)
         save_registry(registry_path, registry)
         n_papers = build_index(library, registry, db_path)
-        print(f"registry saved; index rebuilt over {n_papers} papers ({matched} re-matched)", flush=True)
+        print(f"registry saved; index rebuilt over {n_papers} papers", flush=True)
     elif not registry_path.exists():
         print(
             f"WARNING: no registry found at {registry_path}; canonical_id left null. "
