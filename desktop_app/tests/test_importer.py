@@ -25,5 +25,5 @@ def test_import_pdf_returns_paper_id_and_writes_card(tmp_path: Path):
 
     assert paper_id == "S1"  # fresh tmp_path library → first allocation is S1
     card = json.loads((library / paper_id / "literature_card.json").read_text(encoding="utf-8"))
-    assert card["schema_version"] == "0.2.0"
+    assert card["schema_version"] == "0.3.0"
     assert card["paper"]["title"]

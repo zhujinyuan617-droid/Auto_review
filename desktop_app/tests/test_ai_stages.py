@@ -42,7 +42,7 @@ def _canned(paper_dir: Path):
     }
     card = {
         "paper": {"title": "A Study of Z", "doi": "", "year": "2020", "journal": "", "paper_type": "article"},
-        "classification": {"research_objects": ["X"], "methods": ["Y"], "domain_tags": ["z"], "gas_systems": [], "scale": []},
+        "classification": {"research_objects": ["X"], "methods": ["Y"], "domain_tags": ["z"], "topic_ids": []},
         "summary": {"objective": "Investigate X.", "main_findings": ["Z happens."], "methods_systems": "Y"},
         "ai_warnings": [],
     }
@@ -60,6 +60,6 @@ def test_run_ai_pipeline_produces_card(tmp_path: Path):
     assert (paper_dir / "reading_blocks.json").exists()
 
     card = json.loads((paper_dir / "literature_card.json").read_text(encoding="utf-8"))
-    assert card["schema_version"] == "0.2.0"
+    assert card["schema_version"] == "0.3.0"
     assert card["paper"]["title"] == "A Study of Z"
     assert card["summary"]["main_findings"] == ["Z happens."]

@@ -28,7 +28,7 @@ from docdecomp.literature_card import (
     relevant_reading_blocks,
 )
 
-SLIM_SCHEMA_VERSION = "0.2.0"
+SLIM_SCHEMA_VERSION = "0.3.0"
 
 # Focused reading: feed only substantive sections to the card builder, so the summary is
 # distilled from a short, relevant context (not 140 truncated blocks incl. references).
@@ -68,14 +68,14 @@ def build_slim_prompt(reading: dict, metadata: dict, max_block_chars: int = 900)
         "Never invent. Return strict JSON only."
     )
     user = (
-        "Build one slim index card (schema_version 0.2.0). Output exactly these keys: "
+        "Build one slim index card (schema_version 0.3.0). Output exactly these keys: "
         "schema_version, paper_id, paper, classification, summary, ai_warnings.\n"
         "- paper: {title, doi, year, journal, paper_type}. Use metadata_candidates as hints; "
         "if its title is empty or is a journal/banner name, infer the real title from front-matter "
         "blocks. paper_type is one of the allowed types.\n"
-        "- classification: {research_objects, methods, domain_tags, gas_systems, scale}, each an "
-        "array of SHORT normalized tags drawn from the paper (materials, methods, scales, topics). "
-        "gas_systems and scale may be empty; research_objects/methods/domain_tags should not all be empty.\n"
+        "- classification: {domain_tags}: an array of SHORT normalized topic tags for the whole "
+        "paper (3-6 tags). research_objects and methods are filled by the system from extracted "
+        "elements -- do NOT output them.\n"
         "- summary: {objective, main_findings, methods_systems}. This is a COARSE, DIRECTION-LEVEL "
         "summary for linking only:\n"
         "    objective    : one sentence, the research question/purpose.\n"
@@ -123,9 +123,10 @@ def ensure_slim_defaults(card: dict, reading: dict, metadata: dict) -> dict:
             paper[k] = normalize_space(mc.get(k))
     card["paper"] = paper
 
-    cls = card.get("classification") if isinstance(card.get("classification"), dict) else {}
-    for k in ("research_objects", "methods", "domain_tags", "gas_systems", "scale"):
-        v = cls.get(k)
+    raw_cls = card.get("classification") if isinstance(card.get("classification"), dict) else {}
+    cls: dict = {}
+    for k in ("research_objects", "methods", "domain_tags", "topic_ids"):
+        v = raw_cls.get(k)
         cls[k] = [normalize_space(x) for x in v if normalize_space(x)] if isinstance(v, list) else []
     card["classification"] = cls
 
@@ -144,7 +145,7 @@ def ensure_slim_defaults(card: dict, reading: dict, metadata: dict) -> dict:
 def validate_slim_card(card: dict) -> dict:
     warnings: list[str] = []
     cls = card.get("classification") or {}
-    if not any(cls.get(k) for k in ("research_objects", "methods", "domain_tags")):
+    if not cls.get("domain_tags"):
         warnings.append("classification_empty")
     summ = card.get("summary") or {}
     if not normalize_space(summ.get("objective") or ""):
@@ -154,7 +155,7 @@ def validate_slim_card(card: dict) -> dict:
     if not normalize_space((card.get("paper") or {}).get("title") or ""):
         warnings.append("title_empty")
     return {"status": "ok" if not warnings else "needs_fix", "warnings": warnings,
-            "n_tags": sum(len(cls.get(k) or []) for k in ("research_objects", "methods", "domain_tags")),
+            "n_tags": len(cls.get("domain_tags") or []),
             "n_findings": len(summ.get("main_findings") or [])}
 
 
