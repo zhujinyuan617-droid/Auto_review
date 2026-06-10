@@ -4,6 +4,8 @@ import { el, clear, empty, errorState, loading } from "/assets/ui.js";
 // 屏B 统计 = 分层:总览仪表盘 -> 单 facet 大图 -> 抽屉(论文+引文+共现)。
 // 路由: #/stats(总览) #/stats/<facet>(大图)。role 开关控制是否含 mentioned。
 let includeMentioned = false;
+let _pollTimer = null;
+let _titlesCache = null;
 
 export async function render(view, params) {
   if (params.length >= 1) return renderFacet(view, params[0]);
@@ -13,6 +15,7 @@ export async function render(view, params) {
 function roleParam() { return includeMentioned ? "&role=all" : "&role=used"; }
 
 async function renderOverview(view) {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   loading(view);
   let ov;
   try {
@@ -36,6 +39,7 @@ async function renderOverview(view) {
 }
 
 async function renderFacet(view, facet) {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   loading(view);
   let stats;
   try {
@@ -68,15 +72,18 @@ async function drawDrawer(drawer, facet, item) {
   const seq = ++drawerSeq;
   loading(drawer);
   const slug = item.slug || item.id.split("/")[1];
-  let detail, co, titles = {};
+  let detail, co, titles;
   try {
-    const lib = getJSON("/library/papers");
-    [detail, co] = await Promise.all([
+    if (!_titlesCache) _titlesCache = getJSON("/library/papers");
+    const [d, c, libData] = await Promise.all([
       getJSON(`/elements/${facet}/${slug}`),
       getJSON(`/elements/${facet}/${slug}/cooccurrence`),
+      _titlesCache,
     ]);
-    titles = Object.fromEntries(((await lib).papers || []).map((p) => [p.paper_id, p.title || ""]));
+    detail = d; co = c;
+    titles = Object.fromEntries((libData.papers || []).map((p) => [p.paper_id, p.title || ""]));
   } catch (err) {
+    _titlesCache = null; // 失败不缓存
     if (seq !== drawerSeq) return;
     return errorState(drawer, err.message);
   }
@@ -134,10 +141,11 @@ function roleToggle(redraw) {
 }
 
 function renderBuildOffer(view) {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   clear(view);
   view.append(
     el("h2", { text: "全库统计" }),
-    el("p", { text: "还没有要素索引。点下面按钮做一次全库构建(后台运行,需要 AI;261 篇量级约数小时、数十元)。" }),
+    el("p", { text: "还没有要素索引。点下面按钮做一次全库构建(后台逐篇运行,需要 AI;全库量级通常要十几个小时到一天,费用约几十元)。中途退出应用会中断;之后再点本按钮会自动续跑缺失的部分,不会重复归并。" }),
   );
   const btn = el("button", { text: "构建要素索引(全库)" });
   const log = el("pre", { class: "muted" });
@@ -145,18 +153,18 @@ function renderBuildOffer(view) {
     btn.disabled = true;
     try {
       const { job_id } = await postJSON("/elements/bootstrap", {});
-      const timer = setInterval(async () => {
+      _pollTimer = setInterval(async () => {
         try {
           const s = await getJSON(`/jobs/${job_id}`);
           log.textContent = s.progress.slice(-8).join("\n");
           if (s.status !== "running") {
-            clearInterval(timer);
+            clearInterval(_pollTimer); _pollTimer = null;
             if (!location.hash.startsWith("#/stats")) return; // 用户已离开本屏,不碰别屏的 DOM
             if (s.status === "succeeded") renderOverview(view);
             else errorState(view, "构建失败:" + s.error, () => renderBuildOffer(view));
           }
         } catch (err) {
-          clearInterval(timer);
+          clearInterval(_pollTimer); _pollTimer = null;
           if (!location.hash.startsWith("#/stats")) return; // 用户已离开本屏,不碰别屏的 DOM
           errorState(view, err.message, () => renderBuildOffer(view));
         }
