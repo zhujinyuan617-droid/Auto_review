@@ -47,6 +47,8 @@ _SYSTEM = (
 def _blocks_for_prompt(reading: dict, max_block_chars: int) -> list[dict]:
     out = []
     for b in reading.get("reading_blocks") or []:
+        if not isinstance(b, dict) or not b.get("reading_block_id"):
+            continue
         if not b.get("include_in_reading", True):
             continue
         text = (b.get("text") or b.get("caption") or "").strip()
@@ -80,10 +82,17 @@ def parse_elements_response(raw: dict, reading: dict, seeds: dict) -> tuple[list
     block_text = {
         b["reading_block_id"]: (b.get("text") or b.get("caption") or "")
         for b in reading.get("reading_blocks") or []
+        if isinstance(b, dict) and b.get("reading_block_id")
     }
     occurrences: list[dict] = []
     dropped: list[dict] = []
-    for item in raw.get("elements") or []:
+    elements = raw.get("elements")
+    if not isinstance(elements, list):
+        elements = []
+    for item in elements:
+        if not isinstance(item, dict):
+            dropped.append({"surface": "", "reason": "bad_item"})
+            continue
         surface = str(item.get("surface") or "").strip()
         facet = str(item.get("facet") or "").strip()
         quote = str(item.get("quote") or "").strip()[:MAX_QUOTE_CHARS]
@@ -105,6 +114,8 @@ def parse_elements_response(raw: dict, reading: dict, seeds: dict) -> tuple[list
             dropped.append({"surface": surface, "reason": "quote_not_found" if check["reason"] == "not_found" else check["reason"]})
             continue
         values = parse_values(quote) if facet == "condition" and check["digits_verified"] else []
+        # Deliberate: no (facet, surface, role) dedup — the prompt asks for distinct
+        # elements, but repeats are tolerated; index-level stats count DISTINCT papers.
         occurrences.append(
             {
                 "facet": facet,

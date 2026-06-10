@@ -56,3 +56,28 @@ def test_run_extraction_verifies_drops_and_writes(tmp_path: Path):
 
     on_disk = json.loads((paper_dir / "elements.json").read_text(encoding="utf-8"))
     assert on_disk["paper_id"] == "S90" and len(on_disk["occurrences"]) == 3
+
+
+def test_malformed_items_are_dropped_not_crashing(tmp_path: Path):
+    paper_dir = write_reading_blocks(tmp_path, "S90")
+    client = SequencedFakeClient([{
+        "paper_id": "S90",
+        "elements": [
+            None,
+            "XRD",
+            42,
+            {"facet": "characterization", "surface": "XRD",
+             "quote": "XRD patterns were recorded with CuKa radiation",
+             "reading_block_id": "S90-RB-0002", "role": "used"},
+        ],
+    }])
+    result = run_element_extraction(paper_dir, client, SEEDS)
+    assert [o["surface"] for o in result["occurrences"]] == ["XRD"]
+    assert sum(1 for d in result["dropped"] if d["reason"] == "bad_item") == 3
+
+
+def test_elements_not_a_list_yields_empty(tmp_path: Path):
+    paper_dir = write_reading_blocks(tmp_path, "S90")
+    client = SequencedFakeClient([{"paper_id": "S90", "elements": {"oops": True}}])
+    result = run_element_extraction(paper_dir, client, SEEDS)
+    assert result["occurrences"] == [] and result["dropped"] == []
