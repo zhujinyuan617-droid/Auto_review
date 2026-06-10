@@ -43,6 +43,9 @@ paper_pool/user/
 config/ai.local.json
 Document_Decomposer/config/ai.local.json
 
+# Brainstorm visual companion scratch (superpowers plugin)
+.superpowers/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db
