@@ -14,6 +14,11 @@ from docdecomp.io_utils import atomic_write_csv_dicts
 from docdecomp.literature_card import ensure_card_defaults, load_json, validate_card
 from docdecomp.slim_card import SLIM_SCHEMA_VERSION, ensure_slim_defaults, validate_slim_card
 
+# v2 cards (schema_version 0.2.0) remain valid slim cards during the regen
+# transition window and should be validated the same way as current slim cards
+# (0.3.0).  Extend this set when new slim versions are introduced.
+SLIM_SCHEMA_VERSIONS = {"0.2.0", "0.3.0"}
+
 
 FIELDNAMES = [
     "paper_id",
@@ -54,12 +59,13 @@ def main() -> int:
         card = load_json(paper_dir / args.card_name)
         reading = load_json(paper_dir / "reading_blocks.json")
         metadata = load_json(paper_dir / "metadata_candidates.json")
-        if card.get("schema_version") == SLIM_SCHEMA_VERSION:
+        if card.get("schema_version") in SLIM_SCHEMA_VERSIONS:
+            actual_schema_version = card.get("schema_version", SLIM_SCHEMA_VERSION)
             card = ensure_slim_defaults(card, reading, metadata)
             validation = validate_slim_card(card)
             row = {
                 "paper_id": card.get("paper_id") or reading.get("paper_id"),
-                "schema_version": SLIM_SCHEMA_VERSION,
+                "schema_version": actual_schema_version,
                 "status": "ok" if validation["status"] == "ok" else "fail",
                 "evidence_count": 0,
                 "unknown_reading_block_count": 0,

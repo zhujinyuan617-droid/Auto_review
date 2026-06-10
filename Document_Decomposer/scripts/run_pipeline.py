@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json as _json_module
 import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -133,7 +134,7 @@ def stage_outputs(paper_id: str, stage: str, args: argparse.Namespace) -> list[P
         ],
         "card": [paper_dir / "literature_card.json"],
         "elements": [paper_dir / "elements.json"],
-        "card_tags": [paper_dir / "literature_card.json"],
+        "card_tags": [paper_dir / "card_tags.stamp"],
         "evidence_atoms": [paper_dir / "evidence_atoms.json"],
         "paper_syntheses": [paper_dir / "paper_syntheses.json"],
     }[stage]
@@ -282,6 +283,15 @@ def _run_card_tags_in_process(paper_id: str, args: argparse.Namespace, log_path:
         card.setdefault("classification", {})["topic_ids"] = topic_ids
 
         write_json(card_path, card)
+        stamp_path = paper_dir / "card_tags.stamp"
+        (stamp_path).write_text(
+            _json_module.dumps({
+                "derived_at": datetime.now(timezone.utc).isoformat(),
+                "topics": len(topic_ids),
+                "methods": len(derived["methods"]),
+            }),
+            encoding="utf-8",
+        )
         msg = (
             f"card_tags ok: research_objects={derived['research_objects']}, "
             f"methods={derived['methods']}, topic_ids={topic_ids}"

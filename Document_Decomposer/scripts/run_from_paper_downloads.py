@@ -96,6 +96,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--limit", type=int, default=None, help="Pass --limit to ingest when rescanning.")
     parser.add_argument("--dry-run", action="store_true", help="Print planned commands without running them.")
+    parser.add_argument(
+        "--include-legacy-stages",
+        action="store_true",
+        help="Pass through to run_pipeline.py: run v1 evidence_atoms/paper_syntheses after card.",
+    )
     return parser.parse_args()
 
 
@@ -331,6 +336,8 @@ def pipeline_command(records: list[dict], args: argparse.Namespace) -> list[str]
         command.append("--resume")
     if args.force:
         command.append("--force")
+    if args.include_legacy_stages:
+        command.append("--include-legacy-stages")
     if args.dry_run:
         command.append("--dry-run")
     return command

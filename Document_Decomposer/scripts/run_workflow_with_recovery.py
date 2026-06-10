@@ -266,6 +266,8 @@ def build_main_command(
         command.extend(["--paper-id", paper_id])
     if args.config:
         command.extend(["--config", str(Path(args.config))])
+    if args.include_legacy_stages:
+        command.append("--include-legacy-stages")
     if args.dry_run or force_dry_run:
         command.append("--dry-run")
     return command
