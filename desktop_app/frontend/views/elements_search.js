@@ -3,8 +3,10 @@ import { el, clear, empty, errorState, loading } from "/assets/ui.js";
 
 // 屏A 检索 = 三栏工作台 + 搜索顶栏 + 列表⇄表格切换(spec §8)。
 // 状态:selected = 已选要素 chip;mode = "list"|"table"。
+// 跨视图保留选择(模块级状态):离开再回来时 chips 不清空,这是有意设计。
 let selected = [];
 let mode = "list";
+let querySeq = 0;
 
 export async function render(view, params) {
   loading(view);
@@ -80,12 +82,17 @@ export async function render(view, params) {
   }
 
   async function runQuery() {
+    const seq = ++querySeq;
     if (!selected.length) return empty(results, "从左栏勾选要素,或在上方搜索 — 命中论文会列在这里。");
     loading(results);
     let data;
     try {
       data = await postJSON("/elements/query", { element_ids: selected.map((s) => s.id) });
-    } catch (err) { return errorState(results, err.message, runQuery); }
+      if (seq !== querySeq) return; // superseded by a newer selection
+    } catch (err) {
+      if (seq !== querySeq) return;
+      return errorState(results, err.message, runQuery);
+    }
     clear(results);
     results.append(el("p", { class: "muted", text: `命中 ${data.papers.length} 篇(AND 组合)` }));
     if (mode === "table") return drawTable(data);
@@ -130,8 +137,10 @@ export async function render(view, params) {
       lines.push([p.paper_id, '"' + (titles[p.paper_id] || "").replaceAll('"', '""') + '"', ...cells].join(","));
     }
     const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv" });
-    const a = el("a", { href: URL.createObjectURL(blob), download: "elements_query.csv" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: "elements_query.csv" });
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   }
 
   function drawDetail(p) {
