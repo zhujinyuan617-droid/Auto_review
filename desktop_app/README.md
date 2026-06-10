@@ -25,7 +25,7 @@ Element-index layer (SP1+SP2: per-paper element extraction with verbatim-anchor
 verification, seed->bootstrap->streaming registry, SQLite index, search + stats
 screens, CJK language gate at import) is implemented with offline tests; the
 real-library bootstrap run and the 20-paper sampling audit have NOT been
-executed yet (see docs/superpowers/specs/2026-06-09-element-index-design.md §9).
+executed yet (see docs/superpowers/archive/2026-06-09-element-index-design.md §9).
 
 **Deferred** (each plan's "out of scope" in `../docs/superpowers/plans/`):
 wiring discovery search/download to live APIs + a real writing-brief builder + AI
@@ -36,7 +36,7 @@ chain = 4 AI calls/paper (legacy atoms/syntheses behind --include-legacy-stages)
 finding facet + backfill tooling, slim card v3 with element-derived tags,
 vocabulary derived from the registry (AI normalization retired), authorship via
 OpenAlex + institution registry, parallel extraction. Real-library backfill
-batches NOT yet executed (see ISSUES I18 ordering).
+batches all executed 2026-06-10 (numbers in ISSUES I18; quality by sampling audits I19-I21).
 
 2026-06-10 additions (same branch, offline tests green — engine 152 / desktop 204):
 - **AI parallelism settings**: `app_settings.json` beside the library stores
@@ -46,7 +46,7 @@ batches NOT yet executed (see ISSUES I18 ordering).
   **parallel** AI judging → **serial** commit (`bulk_match_elements`); the
   bootstrap tail and `backfill_findings.py` default to it (`--match-mode stream`
   keeps the legacy per-paper path). Real-library acceptance: **3.2 min wall,
-  154 calls, 0 dangling** — see `../docs/superpowers/specs/2026-06-10-speed-sp-design.md` §6.
+  154 calls, 0 dangling** — see `../docs/superpowers/archive/2026-06-10-speed-sp-design.md` §6.
 - **SP-Map (feature/map-home)**: knowledge-map home screen — 5 switchable lenses
   (topic/method/material/time/institution), deterministic IDF+label-propagation
   clustering with cached FR layout (incremental placement for new papers),
@@ -104,9 +104,9 @@ monorepo (next to `../Document_Decomposer/`).
 
 ## Design record
 
-The full design + per-milestone implementation plans live under
-`../docs/superpowers/` (`specs/2026-06-08-desktop-app-design.md` and the
-`plans/...-m1..m7...md` files). Those are the authoritative design/route source;
-this README is the human-facing overview. Packaging steps + the on-machine
-verification checklist are in `PACKAGING.md`.
+Historical designs + per-milestone plans are archived under
+`../docs/superpowers/archive/` (M1-M7, element-index, pipeline-regen, speed-sp).
+Living docs: `../docs/superpowers/specs/2026-06-10-data-framework.md` (data contract)
+and the map spec/plan. This README is the human-facing overview; packaging steps +
+the on-machine verification checklist are in `PACKAGING.md`.
 ```

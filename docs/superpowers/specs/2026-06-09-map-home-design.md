@@ -2,7 +2,7 @@
 
 - 日期:2026-06-09 初稿;**2026-06-10 升 v2**(并入用户旅程校准后的新增:核心度/单篇特写/时间与机构镜头/图墙/阅读路线/检索屏联动计数)
 - 状态:各项已与用户逐项确认(对话内);**本文件待用户整体审阅**;实施排在「管线换代」之后
-- 单一事实源:数据 schema 见 `2026-06-10-data-framework.md`;管线侧前置见 `2026-06-10-pipeline-regeneration-design.md`(finding 类、authorship、机构注册表)
+- 单一事实源:数据 schema 见 `2026-06-10-data-framework.md`;管线侧前置见 `../archive/2026-06-10-pipeline-regeneration-design.md`(finding 类、authorship、机构注册表)
 - 缘起:用户对现状的判断——「目前的东西像一个工具库,不太像一个给人使用的好东西」
 
 ## 0. 产品观(用户原话的翻译)
