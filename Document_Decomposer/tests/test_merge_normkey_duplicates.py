@@ -21,18 +21,29 @@ def _bare_registry() -> dict:
     return {"schema_version": "0.1.0", "facets": ["material"], "entries": {}}
 
 
-def test_find_groups_same_facet_same_normkey_only(tmp_path: Path):
+def test_find_groups_same_facet_plural_folded(tmp_path: Path):
     reg = _bare_registry()
     log = tmp_path / "log.jsonl"
     create_entry(reg, "material", "carbon slit", "auto-stream", log)
-    create_entry(reg, "material", "Carbon Slit", "auto-bulk", log)   # 同 normkey,不同写法
-    create_entry(reg, "material", "carbon slits", "auto-bulk", log)  # 复数,normkey 不同 → 不入组
+    create_entry(reg, "material", "Carbon Slit", "auto-bulk", log)   # 大小写变体 → 入组
+    create_entry(reg, "material", "carbon slits", "auto-bulk", log)  # 复数 → 同键入组
     create_entry(reg, "condition", "carbon slit", "auto-bulk", log)  # 异 facet → 不入组
     groups = find_duplicate_groups(reg)
     assert len(groups) == 1
     (facet, key), members = next(iter(groups.items()))
     assert facet == "material" and key == "carbon slit"
-    assert len(members) == 2
+    assert len(members) == 3
+
+
+def test_singularize_is_conservative():
+    from merge_normkey_duplicates import dedupe_key
+    assert dedupe_key("adsorption isotherms") == dedupe_key("adsorption isotherm")
+    assert dedupe_key("Materials Studio") == dedupe_key("Material Studio")
+    # 保护词:短词、ss/us/is 结尾不剥
+    assert dedupe_key("gas") == "gas"
+    assert dedupe_key("glass") == "glass"
+    assert dedupe_key("porous media") == "porous media"  # us 结尾不剥
+    assert dedupe_key("basis sets") == "basis set"       # is 结尾保护,普通复数剥
 
 
 def test_pick_target_priority_locked_then_seed_then_aliases_then_id(tmp_path: Path):

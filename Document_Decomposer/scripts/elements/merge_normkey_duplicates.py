@@ -25,13 +25,25 @@ from docdecomp.element_registry import (  # noqa: E402
 )
 
 
+def _singularize_token(token: str) -> str:
+    """保守去复数:仅剥词尾单个 s;短词(≤3)与 ss/us/is 结尾不动(gas/glass/basis 安全)。"""
+    if len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us", "is")):
+        return token[:-1]
+    return token
+
+
+def dedupe_key(name: str) -> str:
+    """norm_key + 逐词保守复数折叠——isotherm/isotherms、Materials/Material Studio 同键。"""
+    return " ".join(_singularize_token(t) for t in norm_key(name).split())
+
+
 def find_duplicate_groups(registry: dict) -> dict[tuple[str, str], list[dict]]:
-    """(facet, norm_key(display_name)) 完全相同的非 redirect 条目组(组内 ≥2)。"""
+    """(facet, dedupe_key(display_name)) 完全相同的非 redirect 条目组(组内 ≥2)。"""
     groups: dict[tuple[str, str], list[dict]] = {}
     for entry in registry["entries"].values():
         if entry.get("redirect_to"):
             continue
-        key = (entry["facet"], norm_key(entry["display_name"]))
+        key = (entry["facet"], dedupe_key(entry["display_name"]))
         groups.setdefault(key, []).append(entry)
     return {k: v for k, v in groups.items() if len(v) > 1}
 
