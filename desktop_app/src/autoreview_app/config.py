@@ -26,6 +26,23 @@ class AppConfig:
         """DOI-keyed author store, kept beside the library dir."""
         return self.library_dir.parent / "authors.db"
 
+    @property
+    def elements_data_dir(self) -> Path:
+        """Element registry + index live under <root>/data/elements (long-lived state)."""
+        return self.library_dir.parent / "data" / "elements"
+
+    @property
+    def elements_db(self) -> Path:
+        return self.elements_data_dir / "elements_index.sqlite"
+
+    @property
+    def elements_registry_path(self) -> Path:
+        return self.elements_data_dir / "registry.json"
+
+    @property
+    def elements_log_path(self) -> Path:
+        return self.elements_data_dir / "registry_log.jsonl"
+
     @classmethod
     def from_env(cls) -> "AppConfig":
         raw = os.environ.get(ENV_LIBRARY_DIR)
