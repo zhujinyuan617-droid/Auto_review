@@ -7,11 +7,16 @@
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
-    <header id="topbar"><h1>Auto Review</h1></header>
+    <header id="topbar">
+      <h1>Auto Review</h1>
+      <span class="tagline">论文 · 拆解 · 重组 · 出稿</span>
+    </header>
     <div id="layout">
       <nav id="nav">
         <a href="#/papers">藏书</a>
         <a href="#/import">导入</a>
+        <a href="#/elements">要素检索</a>
+        <a href="#/stats">全库统计</a>
         <a href="#/network">关系网</a>
         <a href="#/groups">课题组</a>
         <a href="#/writing">写作</a>
@@ -19,6 +24,7 @@
       </nav>
       <main id="view">加载中…</main>
     </div>
+    <script src="/assets/vendor/force-graph.min.js"></script>
     <script type="module" src="/assets/app.js"></script>
   </body>
 </html>
