@@ -412,7 +412,8 @@ def create_app(
     # ---- 知识地图(SP-Map):镜头布局 / 着陆 / 重排 / 阅读路线;全机械零 AI ----
 
     def _check_lens(lens: str) -> None:
-        if lens not in map_service.ALL_LENSES:
+        # "time" 已从镜头枚举退役(Wave-3 ①,年份由区内年轮承载),路径保留兼容旧书签
+        if lens not in map_service.ALL_LENSES and lens != "time":
             raise HTTPException(status_code=400, detail=f"unknown lens: {lens}")
         if lens in ("method", "material"):
             _elements_db_or_503()  # 要素镜头依赖索引;topic/time/institution 不依赖

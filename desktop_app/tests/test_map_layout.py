@@ -62,3 +62,73 @@ def test_fingerprint_sensitivity():
     assert f1 != fingerprint("method", feats, params)                                      # 镜头敏感
     assert f1 != fingerprint("topic", {"S01": {"e1"}, "S02": {"e1"}}, params)              # 要素集敏感
     assert f1 != fingerprint("topic", feats, {**params, "top_k": 5})                       # 参数敏感
+
+
+# ---------------------------------------------------------------------------
+# Wave-3 ①:radial_layout(权重向心 + 区内年轮 + pinned 区压最外圈)
+# ---------------------------------------------------------------------------
+
+from autoreview_app.map.layout import radial_layout  # noqa: E402
+
+
+def _members(spec):
+    """spec: {cluster: n} → 生成成员表 + 年份序键(成员 i 年份 2000+i)。"""
+    members = {c: [f"{c}{i:02d}" for i in range(n)] for c, n in spec.items()}
+    order_key = {p: (2000 + i, p)
+                 for c, ms in members.items() for i, p in enumerate(ms)}
+    return members, order_key
+
+
+def _centroid(pos, ms):
+    xs = [pos[m][0] for m in ms]
+    ys = [pos[m][1] for m in ms]
+    return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+def test_radial_deterministic_and_bounded():
+    members, key = _members({"big": 20, "m1": 8, "m2": 8, "s1": 3})
+    p1 = radial_layout(members, key)
+    p2 = radial_layout(members, key)
+    assert p1 == p2
+    assert set(p1) == {m for ms in members.values() for m in ms}
+    for x, y in p1.values():
+        assert 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0
+
+
+def test_radial_weight_centered_rings():
+    # 6 个中区填满第一环,3 个小区被挤到更外环:小区质心离大区质心更远
+    spec = {"big": 20}
+    spec.update({f"m{i}": 8 for i in range(6)})
+    spec.update({f"s{i}": 3 for i in range(3)})
+    members, key = _members(spec)
+    pos = radial_layout(members, key)
+    c_big = _centroid(pos, members["big"])
+    d_mid = max(_dist(c_big, _centroid(pos, members[f"m{i}"])) for i in range(6))
+    d_small = min(_dist(c_big, _centroid(pos, members[f"s{i}"])) for i in range(3))
+    assert d_small > d_mid  # 规模降序排环:小区在更外
+
+
+def test_radial_year_rings_old_inside_new_outside():
+    members, key = _members({"big": 20, "m1": 8})
+    pos = radial_layout(members, key)
+    ms = members["big"]  # 成员年份随序号递增(2000..2019)
+    c = _centroid(pos, ms)
+    d_old = _dist(c, pos[ms[0]])     # 最老
+    d_mid = _dist(c, pos[ms[10]])    # 中段
+    d_new = _dist(c, pos[ms[-1]])    # 最新
+    assert d_old < d_mid < d_new     # 年轮:老内新外
+
+
+def test_radial_pinned_clusters_outermost():
+    # 待构建区比部分普通区还大,也必须压最外圈(断环规则)
+    members, key = _members({"big": 15, "m1": 6, "m2": 5, "__unbuilt__": 10})
+    pos = radial_layout(members, key)
+    c_big = _centroid(pos, members["big"])
+    d_unbuilt = _dist(c_big, _centroid(pos, members["__unbuilt__"]))
+    for c in ("m1", "m2"):
+        assert d_unbuilt > _dist(c_big, _centroid(pos, members[c])) - 1e-9
+
+
+def test_radial_edge_cases():
+    assert radial_layout({}, {}) == {}
+    assert radial_layout({"only": ["X"]}, {"X": (2020, "X")}) == {"X": (0.5, 0.5)}

@@ -23,14 +23,24 @@ from .graph import (
     similarity_edges,
     split_oversized,
 )
-from .layout import SCHEMA_VERSION, fingerprint, fr_layout, incremental_place, spread_clusters
+from .layout import (
+    SCHEMA_VERSION,
+    fingerprint,
+    fr_layout,
+    incremental_place,
+    radial_layout,
+    spread_clusters,
+)
 
-# v3(地图质量包):烂大街要素剔出连边 + 巨型区递归再分 + lift 区名
-PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "fr+lp-v3", "max_cluster": 30}
+# v4(Wave-3 ①):元素镜头布点换确定性径向(权重向心+区内年轮);灰点收「待构建」区
+PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "radial-v4", "max_cluster": 30}
 LENS_DF_CAP = {"topic": 0.35, "method": 0.30, "material": 0.30}  # 密核由 split 的语义分组兜底
 ARRIVAL_BATCH_GAP_MIN = 30
+UNBUILT_CLUSTER = "__unbuilt__"
 
-ALL_LENSES = ["topic", "method", "material", "time", "institution"]
+# 时间镜头已退役(Wave-3 ①:年份由区内年轮承载,首现进区面板);
+# lens=time 的后端路径保留兼容,但不再出现在枚举里。
+ALL_LENSES = ["topic", "method", "material", "institution"]
 
 
 def _cache_path(config: AppConfig, lens: str) -> Path:
@@ -79,6 +89,7 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
                              df_cap_ratio=LENS_DF_CAP.get(lens, 1.0))
     sizes = _degree_sizes(list(feats), edges)
     names = element_names(config.elements_db) if config.elements_db.exists() else {}
+    years = _paper_years(config)
 
     incremental = None
     if cache and not force and cache.get("params") == PARAMS:
@@ -104,7 +115,10 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
         pos = {**old_pos, **new_pos}
         clusters_map = dict(old_cluster)
         for pid in new_ids:
-            clusters_map[pid] = old_cluster.get(nb_map[pid][0][0]) if nb_map[pid] else pid
+            if not feats.get(pid):
+                clusters_map[pid] = UNBUILT_CLUSTER  # 新进灰点直接归待构建区
+            else:
+                clusters_map[pid] = old_cluster.get(nb_map[pid][0][0]) if nb_map[pid] else pid
         labels = clusters_map
     else:
         labels = label_propagation(sorted(feats), edges)
@@ -113,8 +127,14 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
         # min_size=2:两篇的小桶是有效分组(审计点赞的 LBM/PR-EOS 小袋),只折叠纯单篇
         labels = _merge_tiny_clusters(labels, edges, min_size=2,
                                       max_size=PARAMS["max_cluster"])
-        pos = fr_layout(sorted(feats), edges, labels, iters=PARAMS["iters"], seed=PARAMS["seed"])
-        pos = spread_clusters(pos, labels)
+        for pid, fs in feats.items():
+            if not fs:
+                labels[pid] = UNBUILT_CLUSTER  # 灰点(该镜头无要素)收最外圈待构建区
+        members: dict[str, list[str]] = {}
+        for pid in sorted(feats):
+            members.setdefault(labels.get(pid, pid), []).append(pid)
+        order_key = {pid: (years.get(pid, 9999), pid) for pid in feats}
+        pos = radial_layout(members, order_key)
 
     cluster_labels = name_clusters(labels, feats, idf(feats), names)
     nodes_out = [
@@ -125,12 +145,21 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
             "cluster": labels.get(pid, pid),
             "size": round(sizes.get(pid, 0.0), 3),
             "lit": bool(feats.get(pid)),
+            "year": years.get(pid),
         }
         for pid in sorted(feats)
     ]
     cluster_counts: dict[str, int] = {}
     for n in nodes_out:
         cluster_counts[n["cluster"]] = cluster_counts.get(n["cluster"], 0) + 1
+
+    def _cluster_entry(c: str) -> dict:
+        if c == "__misc__":
+            return {"id": c, "label": "零散文献", "n": cluster_counts[c], "misc": True}
+        if c == UNBUILT_CLUSTER:
+            return {"id": c, "label": "待构建", "n": cluster_counts[c], "unbuilt": True}
+        return {"id": c, "label": cluster_labels.get(c, c), "n": cluster_counts[c]}
+
     payload = {
         "schema_version": SCHEMA_VERSION,
         "lens": lens,
@@ -139,13 +168,7 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
         "fingerprint_papers": fp,
         "params": PARAMS,
         "nodes": nodes_out,
-        "clusters": [
-            {"id": c,
-             "label": "零散文献" if c == "__misc__" else cluster_labels.get(c, c),
-             "n": cluster_counts[c],
-             **({"misc": True} if c == "__misc__" else {})}
-            for c in sorted(cluster_counts)
-        ],
+        "clusters": [_cluster_entry(c) for c in sorted(cluster_counts)],
     }
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -454,7 +477,7 @@ def _apply_meta(config: AppConfig, lens: str, payload: dict) -> dict:
         key = _members_key(members)
         c["members_key"] = key
         entry = meta.get(key)
-        if entry is None and not c.get("misc"):
+        if entry is None and not c.get("misc") and not c.get("unbuilt"):
             mset = set(members)
             best, best_j = None, 0.5
             for k, e in meta.items():
@@ -514,7 +537,7 @@ def describe_clusters(config: AppConfig, lens: str, client) -> dict:
 
     todo = []
     for c in payload.get("clusters") or []:
-        if c.get("misc") or c.get("description"):
+        if c.get("misc") or c.get("unbuilt") or c.get("description"):
             continue
         members = members_by_cluster.get(c["id"], [])
         todo.append({

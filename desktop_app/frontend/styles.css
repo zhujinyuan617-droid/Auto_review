@@ -105,6 +105,8 @@ a.back { font-size: 13px; color: #0969da; text-decoration: none; }
 .map-route-item { color: #0969da; cursor: pointer; padding: 2px 0; }
 .map-route-item:hover { text-decoration: underline; }
 .map-paper-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.map-build-log { font-size: 11px; max-height: 120px; overflow: auto; white-space: pre-wrap;
+  background: #f6f8fa; border-radius: 6px; padding: 6px 8px; margin: 4px 0 8px; }
 .map-paper-actions { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
 .map-facet-head { margin: 10px 0 4px; font-size: 13px; color: #0969da; }
 .map-elem { margin: 4px 0; }

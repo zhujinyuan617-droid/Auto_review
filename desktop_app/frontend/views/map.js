@@ -1,4 +1,4 @@
-import { getJSON, postJSON, putJSON } from "/assets/api.js";
+import { getJSON, postJSON, putJSON, pollJob } from "/assets/api.js";
 import { el, clear, loading, errorState } from "/assets/ui.js";
 
 // 知识地图首页(SP-Map §1/§2/§4 前端面)。
@@ -6,18 +6,18 @@ import { el, clear, loading, errorState } from "/assets/ui.js";
 // 渲染决定:vendored 的 force-graph 是力导向「模拟」库(坐标由它自己迭代算),
 // 而本视图的坐标全部来自后端 /map 的缓存布局(静态、要稳定)。261 个点的散点
 // + 同区凸包,用原生 canvas 直接画最合适:零新依赖、老点位置一像素不漂。
-// 时间镜头后端只给 {id, year, lit},横轴年代分带、同年纵排在这里(前端)布点。
+// Wave-3 ①:布点为后端确定性径向(大区在中心、区内年轮老内新外);时间镜头退役,
+// 年份信息由年轮 + 区面板「年代跨度/首现要素」承载;灰点收最外圈「待构建」区。
 // 特写外环(Wave-2 起)= GET /map/neighbors 的共享要素 top-8(真口径,替换了
 // 首发版"同区 size top-8"的简化方案);内环仍是 /network 的 AI 判边。
 
-const LENS_NAMES = { topic: "主题", method: "方法", material: "材料", time: "时间", institution: "机构" };
+const LENS_NAMES = { topic: "主题", method: "方法", material: "材料", institution: "机构" };
 
 // 灰点原因按镜头说人话(spec 对方法/材料镜头的原文是「该篇要素未构建」)。
 const UNLIT_REASON = {
   topic: "该篇无主题标签",
   method: "该篇要素未构建",
   material: "该篇要素未构建",
-  time: "该篇年份未知",
   institution: "该篇机构信息未拉取",
 };
 
@@ -166,57 +166,18 @@ export async function render(view) {
   }
 
   // ---------- 镜头数据准备 ----------
-  function timeLayout(raw) {
-    // 横轴 = 年代(线性);同年内按 id 字典序均匀纵排;未知年份靠最左一列。
-    const years = [...new Set(raw.filter((n) => n.year != null).map((n) => n.year))].sort((a, b) => a - b);
-    const minY = years[0], maxY = years[years.length - 1];
-    const span = Math.max(1, (maxY || 0) - (minY || 0));
-    const xOf = (year) => 0.10 + 0.85 * ((year - minY) / span);
-    const groups = new Map();
-    for (const n of raw) {
-      const key = n.year == null ? "unknown" : n.year;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(n);
-    }
-    const nodes = [];
-    for (const [key, list] of groups) {
-      list.sort((a, b) => (a.id < b.id ? -1 : 1));
-      list.forEach((n, i) => {
-        nodes.push({
-          ...n,
-          x: key === "unknown" ? 0.03 : xOf(key),
-          y: 0.10 + 0.80 * ((i + 1) / (list.length + 1)),
-          cluster: "decade:" + (key === "unknown" ? "unknown" : Math.floor(key / 10) * 10),
-          size: 0,
-        });
-      });
-    }
-    const ids = [...new Set(nodes.map((n) => n.cluster))].sort();
-    const clusters = ids.map((d) => ({
-      id: d,
-      label: d === "decade:unknown" ? "未知年份" : d.replace("decade:", "") + " 年代",
-      n: nodes.filter((n) => n.cluster === d).length,
-    }));
-    return { nodes, clusters };
-  }
-
   function prepareLens(p) {
     S.lens = p.lens;
-    S.hasBackendClusters = p.lens !== "time" && Array.isArray(p.clusters);
-    let nodes, clusters;
-    if (p.lens === "time") {
-      ({ nodes, clusters } = timeLayout(p.nodes || []));
-    } else {
-      nodes = (p.nodes || []).map((n) => ({ ...n }));
-      clusters = (p.clusters || []).map((c) => ({ ...c }));
-    }
+    S.hasBackendClusters = Array.isArray(p.clusters);
+    const nodes = (p.nodes || []).map((n) => ({ ...n }));
+    const clusters = (p.clusters || []).map((c) => ({ ...c }));
     clusters.slice().sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1))
       .forEach((c, i) => { c.color = PALETTE[i % PALETTE.length]; });
     for (const c of clusters) c.members = [];
     const byCluster = new Map(clusters.map((c) => [c.id, c]));
     const maxSize = Math.max(1e-9, ...nodes.map((n) => n.size || 0));
     for (const n of nodes) {
-      n.r = p.lens === "time" ? 4.5 : 3 + Math.sqrt(Math.max(0, n.size || 0) / maxSize) * 7;
+      n.r = 3 + Math.sqrt(Math.max(0, n.size || 0) / maxSize) * 7;
       let c = byCluster.get(n.cluster);
       if (!c && n.cluster != null) { // payload 防御:点引用了未登记的区
         c = { id: n.cluster, label: String(n.cluster), n: 0, color: PALETTE[byCluster.size % PALETTE.length], members: [] };
@@ -342,12 +303,31 @@ export async function render(view) {
     ctx.fillStyle = "#fbfcfd";
     ctx.fillRect(0, 0, cssW, cssH);
 
-    // 同区凸包淡色底(粗描边 + 填充 = 外扩圆角的廉价实现);misc 区不画凸包不画名
+    // 同区凸包淡色底(粗描边 + 填充 = 外扩圆角的廉价实现);misc 区不画凸包不画名;
+    // 待构建区(unbuilt)画虚线轮廓 —— 可点(进面板一键构建),但视觉上是"还没入区"。
     for (const c of S.clusters) {
       if (!c.members.length || c.misc) { c._hull = null; continue; }
       const hull = convexHull(c.members.map((n) => [SX(n.x), SY(n.y)]));
       c._hull = hull;
       const hovered = S.hover && S.hover.type === "cluster" && S.hover.cluster === c;
+      if (c.unbuilt) {
+        tracePath(hull);
+        ctx.fillStyle = hexA(GREY, hovered ? 0.12 : 0.05);
+        ctx.strokeStyle = hexA(GREY, hovered ? 0.16 : 0.07);
+        ctx.lineWidth = HULL_PAD * 2;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.stroke();
+        ctx.fill();
+        ctx.save();
+        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = "rgba(110,120,135,0.75)";
+        tracePath(hull);
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
       const fill = hexA(c.color || GREY, hovered ? 0.17 : 0.09);
       tracePath(hull);
       ctx.fillStyle = fill;
@@ -390,10 +370,12 @@ export async function render(view) {
       .sort((a, b) => b.c.members.length - a.c.members.length);
     for (const { c, cx, cy, area } of byArea) {
       const hovered = S.hover && S.hover.type === "cluster" && S.hover.cluster === c;
-      if (area < 2200 && !hovered) continue;
+      // 待构建区的名字是行动入口(点进去一键构建),不论面积大小都画
+      if (area < 2200 && !hovered && !c.unbuilt) continue;
+      const labelText = c.unbuilt ? `待构建 ${c.members.length} 篇 · 点击构建` : c.label;
       const px = Math.max(12, Math.min(19, 10 + Math.sqrt(c.members.length) * 1.6));
       ctx.font = `700 ${px}px 'Segoe UI','Microsoft YaHei',sans-serif`;
-      const w = ctx.measureText(c.label).width;
+      const w = ctx.measureText(labelText).width;
       const box = { x0: cx - w / 2 - 6, x1: cx + w / 2 + 6, y0: cy - px, y1: cy + px };
       const collides = drawn.some(
         (b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0
@@ -405,9 +387,9 @@ export async function render(view) {
       ctx.lineWidth = 5;
       ctx.lineJoin = "round";
       ctx.strokeStyle = "rgba(255,255,255,0.92)";
-      ctx.strokeText(c.label, cx, cy);
-      ctx.fillStyle = shade(c.color || GREY);
-      ctx.fillText(c.label, cx, cy);
+      ctx.strokeText(labelText, cx, cy);
+      ctx.fillStyle = c.unbuilt ? "rgba(90,100,115,0.9)" : shade(c.color || GREY);
+      ctx.fillText(labelText, cx, cy);
     }
     positionHalo();
   }
@@ -553,7 +535,7 @@ export async function render(view) {
     if (c.label_overridden) {
       sideTitle.append(el("span", { class: "map-badge-human", text: "人工", title: "人工命名,永久优先" }));
     }
-    if (S.hasBackendClusters && !c.misc) {
+    if (S.hasBackendClusters && !c.misc && !c.unbuilt) {
       const btn = el("button", { class: "map-rename-btn", text: "改名", title: "为这个区起个永久名字(优先于自动命名)" });
       btn.addEventListener("click", () => renameUI(c));
       sideTitle.append(btn);
@@ -627,10 +609,11 @@ export async function render(view) {
       });
   }
 
-  // ---- 时间镜头:该年代首现的要素(GET /map/first-seen) ----
+  // ---- 区面板:该区年代跨度内库中首现的要素(GET /map/first-seen;Wave-3 ①
+  //      时间镜头退役后,"要素首现"的新家) ----
   function firstSeenSection(y0, y1) {
     const box = el("div", { class: "map-panel-sec" }, [
-      el("h4", { class: "map-facet-head", text: "该年代首现的要素" }),
+      el("h4", { class: "map-facet-head", text: `本区年代 ${y0}–${y1} · 该时期库内首现的要素` }),
     ]);
     const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
     box.append(slot);
@@ -687,15 +670,20 @@ export async function render(view) {
   }
 
   function showRegion(c) {
+    if (c.unbuilt) return showUnbuilt(c);
     focusCluster(c);
     openPanel("", (body) => {
       const descSlot = el("div", { class: "map-region-desc" });
       body.append(descSlot);
       fillRegionDesc(c, descSlot);
       S.regionPanel = { cluster: c, slot: descSlot };
-      if (S.lens === "time" && /^decade:\d+$/.test(String(c.id))) {
-        const y0 = parseInt(String(c.id).slice(7), 10);
-        body.append(firstSeenSection(y0, y0 + 9)); // 2010 年代 = 2010–2019
+      // 年代跨度(年轮口径:区心最老、区缘最新)+ 该时期库内首现要素
+      const years = c.members.map((n) => n.year).filter((y) => y != null);
+      if (years.length && S.lens !== "institution") {
+        const y0 = Math.min(...years), y1 = Math.max(...years);
+        body.append(el("div", { class: "map-side-meta",
+          text: `年代跨度 ${y0}–${y1}(区内年轮:靠区心更老,靠区缘更新)` }));
+        if (!c.misc) body.append(firstSeenSection(y0, y1));
       }
       if (S.lens === "institution" && !String(c.id).startsWith("__")) {
         body.append(institutionSection(String(c.id)));
@@ -735,6 +723,55 @@ export async function render(view) {
       }
     });
     regionTitle(c); // openPanel 只接受纯文本标题,区标题行(徽标+改名)在这之后自绘
+  }
+
+  // ---- 待构建区面板(Wave-3 ①):解释 + 一键增量构建 + 成员清单 ----
+  function showUnbuilt(c) {
+    focusCluster(c);
+    const btnText = `一键构建要素(${c.members.length} 篇)`;
+    openPanel(`待构建(${c.members.length} 篇)`, (body) => {
+      body.append(el("p", { class: "muted", text:
+        `这 ${c.members.length} 篇的研究要素还没有生成,所以暂时进不了任何分区。` +
+        "点下面按钮一键构建(增量,只补缺的);完成后这些点会自动落进对应的区。" }));
+      const btn = el("button", { class: "map-btn", text: btnText });
+      const log = el("pre", { class: "muted map-build-log" });
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        btn.textContent = "构建中…(可离开本屏,任务在后台继续)";
+        try {
+          const { job_id } = await postJSON("/elements/bootstrap", {});
+          const job = await pollJob(job_id, {
+            hashPrefix: "#/map",
+            intervalMs: 2000,
+            onTick: (j) => { log.textContent = (j.progress || []).slice(-6).join("\n"); },
+          });
+          if (job.status === "succeeded") {
+            showToast("构建完成,刷新地图…");
+            render(view); // 重新拉 /map:要素集指纹已变,灰点自动归位
+          } else if (job.status === "detached") {
+            // 用户已切去别屏:任务继续在后台跑,不打扰
+          } else {
+            showToast("构建未完成:" + (job.error || job.status));
+            btn.disabled = false;
+            btn.textContent = btnText;
+          }
+        } catch (err) {
+          showToast("构建启动失败:" + err.message);
+          btn.disabled = false;
+          btn.textContent = btnText;
+        }
+      });
+      body.append(el("div", { class: "map-paper-actions" }, [btn]), log);
+      for (const n of c.members) {
+        const t = (titles[n.id] && titles[n.id].title) || "";
+        const row = el("div", { class: "map-row" }, [
+          el("div", {}, [el("b", { text: n.id })]),
+          el("div", { class: "map-side-meta", text: trunc(t, 70) || "(无标题)" }),
+        ]);
+        row.addEventListener("click", () => showPaper(n));
+        body.append(row);
+      }
+    });
   }
 
   function showPaper(n) {

@@ -43,15 +43,21 @@ def _client(tmp_path: Path) -> tuple[TestClient, AppConfig]:
 
 def test_topic_lens_payload_shape_and_lit(tmp_path: Path):
     client, cfg = _client(tmp_path)
-    _write_card(cfg.library_dir, "S01", topic_ids=["elem:topic/shale-gas"])
-    _write_card(cfg.library_dir, "S02", topic_ids=["elem:topic/shale-gas"])
+    _write_card(cfg.library_dir, "S01", topic_ids=["elem:topic/shale-gas"], year=2018)
+    _write_card(cfg.library_dir, "S02", topic_ids=["elem:topic/shale-gas"], year=2022)
     _write_card(cfg.library_dir, "S03", topic_ids=[])  # 无 topic → 灰点
     body = client.get("/map?lens=topic").json()
     assert body["lens"] == "topic" and body["lenses"] == map_service.ALL_LENSES
+    assert "time" not in body["lenses"]  # Wave-3 ①:时间镜头退役
     nodes = {n["id"]: n for n in body["nodes"]}
     assert set(nodes) == {"S01", "S02", "S03"}
     assert nodes["S01"]["lit"] and not nodes["S03"]["lit"]
     assert nodes["S01"]["cluster"] == nodes["S02"]["cluster"]  # 共享 topic 同区
+    assert nodes["S01"]["year"] == 2018  # 年份随节点下发(区内年轮 + 区面板年代跨度用)
+    # 灰点不再混进零散区,而是归「待构建」区(带 unbuilt 标志)
+    assert nodes["S03"]["cluster"] == map_service.UNBUILT_CLUSTER
+    unbuilt = [c for c in body["clusters"] if c.get("unbuilt")]
+    assert len(unbuilt) == 1 and unbuilt[0]["n"] == 1 and unbuilt[0]["label"] == "待构建"
     assert (cfg.elements_data_dir / "map_layout_topic.json").exists()
 
 
@@ -62,13 +68,13 @@ def test_topic_lens_cache_hit_skips_layout(tmp_path: Path, monkeypatch):
     client.get("/map?lens=topic")  # 建缓存
 
     calls = {"n": 0}
-    real = map_service.fr_layout
+    real = map_service.radial_layout
 
     def counting(*a, **kw):
         calls["n"] += 1
         return real(*a, **kw)
 
-    monkeypatch.setattr(map_service, "fr_layout", counting)
+    monkeypatch.setattr(map_service, "radial_layout", counting)
     client.get("/map?lens=topic")
     assert calls["n"] == 0  # 指纹命中,不重算
 
@@ -139,13 +145,13 @@ def test_relayout_recomputes(tmp_path: Path, monkeypatch):
     _write_card(cfg.library_dir, "S02", topic_ids=["elem:topic/a"])
     client.get("/map?lens=topic")
     calls = {"n": 0}
-    real = map_service.fr_layout
+    real = map_service.radial_layout
 
     def counting(*a, **kw):
         calls["n"] += 1
         return real(*a, **kw)
 
-    monkeypatch.setattr(map_service, "fr_layout", counting)
+    monkeypatch.setattr(map_service, "radial_layout", counting)
     assert client.post("/map/relayout?lens=topic").status_code == 200
     assert calls["n"] == 1  # 显式重排必重算
 
