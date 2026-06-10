@@ -9,6 +9,7 @@ const ROUTES = {
   settings: () => import("/assets/views/settings.js"),
   groups: () => import("/assets/views/groups.js"),
   elements: () => import("/assets/views/elements_search.js"),
+  stats: () => import("/assets/views/elements_stats.js"),
 };
 
 function parseHash() {
