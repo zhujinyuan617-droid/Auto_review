@@ -109,6 +109,36 @@ def _write_card(lib: Path, pid: str, topic_ids):
         encoding="utf-8")
 
 
+def test_split_oversized_anchor_fallback_breaks_dense_core():
+    """T2(opus 评审):完全图等权密核——标签传播必然单标签,锚分组兜底必须把它分开。"""
+    from autoreview_app.map.graph import split_oversized
+    nodes = [f"A{i}" for i in range(4)] + [f"B{i}" for i in range(4)] + [f"C{i}" for i in range(4)]
+    edges = [(a, b, 1.0) for i, a in enumerate(nodes) for b in nodes[i + 1:]]  # 完全图等权
+    feats = {n: ({"fa"} if n.startswith("A") else {"fb"} if n.startswith("B") else set())
+             for n in nodes}
+    w = {"fa": 1.0, "fb": 1.0}
+    labels = {n: "core" for n in nodes}
+    out = split_oversized(labels, edges, max_size=6, features=feats, weights=w)
+    assert out["A0"] == out["A3"] and out["B0"] == out["B3"]
+    assert out["A0"] != out["B0"]                    # 按锚分了家
+    assert out["C0"] != out["A0"]                    # 无锚者自成 __none__ 组
+    assert all(v.startswith("core>") for v in out.values())
+
+
+def test_merge_tiny_respects_max_size_gate(tmp_path: Path):
+    """T4(opus 评审):小区不许喂给会超限的区——否则拆分被合并复原等于白拆。"""
+    from autoreview_app.map.service import _merge_tiny_clusters
+    labels = {"B1": "BIG", "B2": "BIG", "B3": "BIG", "B4": "BIG", "T1": "T"}
+    edges = [("T1", "B1", 9.9)]
+    # 无上限:并入 BIG
+    out1 = _merge_tiny_clusters(labels, edges, min_size=2)
+    assert out1["T1"] == "BIG"
+    # 上限 4:BIG 已满 → 拒收,T1 落零散组
+    out2 = _merge_tiny_clusters(labels, edges, min_size=2, max_size=4)
+    assert out2["T1"] == "__misc__"
+    assert out2["B1"] == "BIG"
+
+
 def test_paper_features_topic_lens_reads_cards(tmp_path: Path):
     lib = tmp_path / "library"
     _write_card(lib, "S01", ["elem:topic/shale-gas"])

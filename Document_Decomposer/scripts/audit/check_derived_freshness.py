@@ -3,6 +3,9 @@
 链条:registry.json → vocabulary.json → candidate_edges.json → edges.json → concept_index.json
 上游比下游新 = 下游过期(乱序重建会让候选边召回静默塌缩)。本脚本只读、只报告;
 exit 0 = 全新鲜,exit 1 = 有过期(打印谁过期、该按什么顺序重跑)。
+
+范围声明(opus 评审 M-4):只查 registry 之后的**纯派生链** mtime;卡片本身、
+card_tags 回填、topic 导入/解析这些 I18 前段不在本门禁内,仍按 ISSUES I18 人工守序。
 """
 from __future__ import annotations
 

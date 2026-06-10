@@ -38,8 +38,8 @@ Report = Callable[[str], None]
 
 # 注册表"读改存"必须互斥:并发导入各拿一份磁盘副本再各自整写,后存者会覆盖
 # 前存者新建的条目(last-writer-wins),elements.json 留悬空 canonical_id。
-# jobs 每个导入一线程、无并发上限,batch 多选导入就是并发场景——进程级锁兜底。
-_REGISTRY_WRITE_LOCK = threading.Lock()
+# 锁本体在 registry_locks(共享模块):api 的 PUT 改名/合并等写路径同持此锁。
+from ..registry_locks import ELEMENTS_REGISTRY_LOCK as _REGISTRY_WRITE_LOCK  # noqa: E402
 
 
 def engine_root() -> Path:

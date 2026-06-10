@@ -112,6 +112,9 @@ def main() -> int:
     print(f"done: {ok} ok ({skipped} already-enriched), {failed} failed, "
           f"+{added_total} tags total", flush=True)
     print("REMINDER: now run resolve_topics_bulk + derive_vocabulary (+freshness gate).", flush=True)
+    print("DEPENDENCY: rerunning the card stage OVERWRITES enriched tags and the "
+          "mechanism_enriched marker — after any card rerun, rerun this script "
+          "AND card_tags backfill (opus review I-1).", flush=True)
     return 0 if failed == 0 else 1
 
 

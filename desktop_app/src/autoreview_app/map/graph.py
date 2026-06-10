@@ -186,6 +186,7 @@ def split_oversized(
                         for e in features.get(pid, ())
                         if 4 <= df.get(e, 0) <= band_hi and e not in banned
                     ]
+                    # max 的平票语义:weight 相等时取 e 字典序**最大**者——确定即可,方向无关紧要
                     return max(cands)[1] if cands else "__none__"
 
                 groups: dict[str, list[str]] = {}

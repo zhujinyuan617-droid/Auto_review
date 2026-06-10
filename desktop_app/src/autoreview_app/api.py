@@ -25,6 +25,7 @@ from .writing.gates import check_draft
 from .writing.ideation import load_angles
 from .elements import service as elements_service
 from .map import service as map_service
+from .registry_locks import ELEMENTS_REGISTRY_LOCK, INSTITUTIONS_REGISTRY_LOCK
 from docdecomp.element_index import (
     build_index,
     get_element,
@@ -330,30 +331,33 @@ def create_app(
     def element_update(facet: str, slug: str, req: ElementUpdate) -> dict:
         if not config.elements_registry_path.exists():
             raise HTTPException(status_code=503, detail="elements index not built")
-        registry = load_registry(config.elements_registry_path)
-        eid = f"elem:{facet}/{slug}"
-        if eid not in registry["entries"]:
-            raise HTTPException(status_code=404, detail="unknown element")
-        if req.merge_into:
-            if req.display_name or req.add_alias:
-                raise HTTPException(
-                    status_code=400, detail="merge_into cannot be combined with other operations"
-                )
-            if req.merge_into not in registry["entries"]:
-                raise HTTPException(status_code=400, detail="merge target unknown")
-            if resolve_id(registry, req.merge_into) == eid:
-                raise HTTPException(status_code=400, detail="cannot merge entry into itself")
-        if req.display_name:
-            rename_entry(registry, eid, req.display_name, config.elements_log_path)
-        if req.add_alias:
-            registry_add_alias(registry, eid, req.add_alias, "human", config.elements_log_path)
-        if req.merge_into:
-            try:
-                merge_entries(registry, eid, req.merge_into, "human", config.elements_log_path)
-            except ValueError as exc:  # defense in depth: engine guards map to 400
-                raise HTTPException(status_code=400, detail=str(exc))
-        save_registry(config.elements_registry_path, registry)
-        build_index(config.library_dir, registry, config.elements_db)
+        # 与导入归一同持一把锁(opus 评审 C1):人工改名/合并和导入 job 真并发,
+        # 不持锁就是 last-writer-wins 丢条目。
+        with ELEMENTS_REGISTRY_LOCK:
+            registry = load_registry(config.elements_registry_path)
+            eid = f"elem:{facet}/{slug}"
+            if eid not in registry["entries"]:
+                raise HTTPException(status_code=404, detail="unknown element")
+            if req.merge_into:
+                if req.display_name or req.add_alias:
+                    raise HTTPException(
+                        status_code=400, detail="merge_into cannot be combined with other operations"
+                    )
+                if req.merge_into not in registry["entries"]:
+                    raise HTTPException(status_code=400, detail="merge target unknown")
+                if resolve_id(registry, req.merge_into) == eid:
+                    raise HTTPException(status_code=400, detail="cannot merge entry into itself")
+            if req.display_name:
+                rename_entry(registry, eid, req.display_name, config.elements_log_path)
+            if req.add_alias:
+                registry_add_alias(registry, eid, req.add_alias, "human", config.elements_log_path)
+            if req.merge_into:
+                try:
+                    merge_entries(registry, eid, req.merge_into, "human", config.elements_log_path)
+                except ValueError as exc:  # defense in depth: engine guards map to 400
+                    raise HTTPException(status_code=400, detail=str(exc))
+            save_registry(config.elements_registry_path, registry)
+            build_index(config.library_dir, registry, config.elements_db)
         return {"entry": registry["entries"][eid]}
 
     @app.get("/papers/{paper_id}/elements")
@@ -501,9 +505,12 @@ def _default_authorship_runner(config: AppConfig, force: bool = False) -> Author
             _time.sleep(0.2)
             return source.fetch_authorship(doi, transport)
 
-        return populate_authorship(
-            config.library_dir, config.institutions_data_dir, _polite_fetch, progress, force=force,
-        )
+        # 整跑持机构注册表锁(opus 评审 C1):双击重跑/两个 populate job 并发时,
+        # 各自 load→改→save 会 last-writer-wins;只有 populate 写这本账,串行化即可。
+        with INSTITUTIONS_REGISTRY_LOCK:
+            return populate_authorship(
+                config.library_dir, config.institutions_data_dir, _polite_fetch, progress, force=force,
+            )
     return run
 
 
