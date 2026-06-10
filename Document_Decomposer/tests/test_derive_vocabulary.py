@@ -167,6 +167,24 @@ class TestDeriveVocabulary:
         assert len(out["warnings"]) >= 1
         assert any("shared alias" in w.lower() for w in out["warnings"])
 
+    def test_human_locked_entry_wins_alias_collision(self, tmp_path):
+        """Alphabetically-later entry with human_locked=True wins the shared alias."""
+        reg, log = _make_base_registry(tmp_path)
+        from docdecomp.element_registry import add_alias
+        # "zeta topic" sorts AFTER "alpha topic", but is human-locked
+        eid_a = create_entry(reg, "topic", "alpha topic", "test", log)
+        eid_z = create_entry(reg, "topic", "zeta topic", "test", log)
+        add_alias(reg, eid_a, "shared keyword", "test", log)
+        add_alias(reg, eid_z, "Shared Keyword", "test", log)  # same lower-key
+        reg["entries"][eid_z]["human_locked"] = True
+        out = derive_vocabulary(reg, card_count=10)
+        r2c = out["raw_to_canonical"]["topic"]
+        # Locked entry wins despite sorting later alphabetically
+        assert r2c.get("shared keyword") == "zeta topic"
+        # Warning must still be recorded
+        assert len(out["warnings"]) >= 1
+        assert any("shared keyword" in w.lower() for w in out["warnings"])
+
     def test_empty_registry_produces_empty_facets(self, tmp_path):
         """A registry with zero entries (no seeds, no entries) gives empty facets."""
         from docdecomp.element_registry import SCHEMA_VERSION

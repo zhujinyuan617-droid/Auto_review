@@ -46,8 +46,8 @@ def derive_vocabulary(registry: dict, card_count: int) -> dict:
             e for e in registry["entries"].values()
             if e["facet"] in src_facets and not e.get("redirect_to")
         ]
-        # Sort by canonical display_name for determinism
-        entries.sort(key=lambda e: e["display_name"])
+        # Sort: 人工锁定条目在别名冲突时优先胜出(策展不被自动条目覆盖); 次键按 display_name 保持确定性
+        entries.sort(key=lambda e: (not e.get("human_locked", False), e["display_name"]))
 
         r2c: dict[str, str] = {}
         concepts: list[dict] = []
