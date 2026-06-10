@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .element_matching import match_paper_elements
 from .element_registry import (
     add_alias,
+    append_log,
     create_entry,
     find_by_surface,
     new_registry_from_seeds,
@@ -69,7 +71,11 @@ def bootstrap_registry(library_dir: Path, seeds: dict, client, data_dir: Path,
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     log_path = data_dir / "registry_log.jsonl"
+    run_id = datetime.now(timezone.utc).strftime("bootstrap-%Y%m%dT%H%M%SZ")
     registry = new_registry_from_seeds(seeds)
+
+    # Aborted runs leave unbracketed events; replayers must keep only events inside a complete start/complete pair (and all source=="human" events).
+    append_log(log_path, {"event": "bootstrap_run_start", "element_id": "", "detail": run_id, "source": "bootstrap"})
 
     for facet, counter in sorted(collect_surfaces(library_dir).items()):
         surfaces = counter.most_common()
@@ -88,7 +94,8 @@ def bootstrap_registry(library_dir: Path, seeds: dict, client, data_dir: Path,
                 if not isinstance(group, dict):
                     continue
                 canonical = str(group.get("canonical") or "").strip()
-                members = [str(m).strip() for m in (group.get("members") or []) if str(m).strip()]
+                members = [str(m).strip() for m in (group.get("members") or [])
+                           if isinstance(m, str) and m.strip()]
                 if not canonical or not members:
                     continue
                 eid = find_by_surface(registry, facet, canonical) or create_entry(
@@ -101,9 +108,13 @@ def bootstrap_registry(library_dir: Path, seeds: dict, client, data_dir: Path,
                 if surface not in assigned and not find_by_surface(registry, facet, surface):
                     create_entry(registry, facet, surface, "bootstrap", log_path)
 
-    for elements_path in sorted(Path(library_dir).glob("*/elements.json")):
+    paper_paths = sorted(Path(library_dir).glob("*/elements.json"))
+    for i, elements_path in enumerate(paper_paths, 1):
+        if i == 1 or i % 10 == 0 or i == len(paper_paths):
+            progress(f"assigning papers {i}/{len(paper_paths)}")
         match_paper_elements(elements_path.parent, registry, None, log_path)
 
+    append_log(log_path, {"event": "bootstrap_run_complete", "element_id": "", "detail": run_id, "source": "bootstrap"})
     save_registry(data_dir / "registry.json", registry)
     return registry
 

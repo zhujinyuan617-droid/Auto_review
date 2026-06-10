@@ -61,3 +61,46 @@ def test_superbucket_report_flags_oversized():
                                     "redirect_to": None, "origin": "bootstrap", "human_locked": False}}}
     flagged = superbucket_report(reg, max_aliases=12)
     assert flagged and flagged[0]["id"] == "elem:a/x"
+
+
+def test_cross_chunk_canonical_feedforward(tmp_path: Path):
+    _paper_with_elements(tmp_path, "S90", [("analysis", "tortuosity"), ("analysis", "tortuosity factor")])
+    _paper_with_elements(tmp_path, "S91", [("analysis", "gas slippage")])
+    data_dir = tmp_path / "data" / "elements"
+    client = SequencedFakeClient([
+        {"groups": [{"canonical": "tortuosity", "members": ["tortuosity", "tortuosity factor"]}]},
+        {"groups": [{"canonical": "gas slippage", "members": ["gas slippage"]}]},
+    ])
+    bootstrap_registry(tmp_path, SEEDS, client, data_dir, chunk_size=2)
+    assert len(client.calls) == 2
+    # 第二次调用的 user 消息里必须带上第一轮新建的 canonical
+    second_user = client.calls[1][0][1]["content"]
+    assert "tortuosity" in second_user
+
+
+def test_overlong_group_members_capped_and_rescued(tmp_path: Path):
+    surfaces = [("analysis", f"metric {i}") for i in range(9)]
+    _paper_with_elements(tmp_path, "S90", surfaces)
+    data_dir = tmp_path / "data" / "elements"
+    client = SequencedFakeClient([
+        {"groups": [{"canonical": "metric 0", "members": [f"metric {i}" for i in range(9)]}]},
+    ])
+    reg = bootstrap_registry(tmp_path, SEEDS, client, data_dir)
+    # 第 9 个成员(metric 8)不进组,但必须有自己的条目,绝不丢
+    d = json.loads((tmp_path / "S90" / "elements.json").read_text(encoding="utf-8"))
+    ids = {o["surface"]: o["canonical_id"] for o in d["occurrences"]}
+    assert all(v for v in ids.values())
+    assert ids["metric 8"] is not None
+
+
+def test_malformed_groups_skipped(tmp_path: Path):
+    _paper_with_elements(tmp_path, "S90", [("analysis", "permeability evolution")])
+    data_dir = tmp_path / "data" / "elements"
+    client = SequencedFakeClient([
+        {"groups": ["not_a_dict", None,
+                    {"canonical": "permeability evolution", "members": ["permeability evolution", None]}]},
+    ])
+    reg = bootstrap_registry(tmp_path, SEEDS, client, data_dir)
+    d = json.loads((tmp_path / "S90" / "elements.json").read_text(encoding="utf-8"))
+    assert d["occurrences"][0]["canonical_id"] == "elem:analysis/permeability-evolution"
+    assert not any(a == "None" for e in reg["entries"].values() for a in e["aliases"])
