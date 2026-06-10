@@ -193,3 +193,31 @@ def test_bootstrap_derives_card_tags_for_all_papers(tmp_path: Path):
     assert "research_objects" in cls
     assert "methods" in cls
     assert "topic_ids" in cls
+
+
+def test_bootstrap_tail_uses_bulk_with_parallel(tmp_path: Path, monkeypatch):
+    """registry 已存在时,尾巴走 bulk_match_elements 且并行数透传。"""
+    library = tmp_path / "library"
+    cfg = AppConfig(library_dir=library)
+    write_reading_blocks(library, "S90")
+    client1 = SequencedFakeClient([
+        elements_ai_response("S90"),
+        {"groups": []}, {"groups": []},
+    ])
+    service.run_bootstrap(cfg, client1, lambda m: None)   # 建出 registry
+
+    captured = {}
+
+    def fake_bulk(paper_dirs, registry, client, log_path, *, parallel=8, chunk_size=30):
+        captured["n_papers"] = len(list(paper_dirs))
+        captured["parallel"] = parallel
+        return {"resolved_exact": 0, "resolved_ai": 0, "created": 0,
+                "ai_calls": 0, "judge_failed_chunks": 0, "papers_written": 0,
+                "groups_total": 0}
+
+    monkeypatch.setattr(service, "bulk_match_elements", fake_bulk)
+    write_reading_blocks(library, "S91")
+    client2 = SequencedFakeClient([elements_ai_response("S91")])
+    service.run_bootstrap(cfg, client2, lambda m: None, parallel=33)
+    assert captured["parallel"] == 33
+    assert captured["n_papers"] == 2

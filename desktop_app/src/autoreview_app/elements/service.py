@@ -22,7 +22,7 @@ from docdecomp.card_tags import (  # noqa: E402
 from docdecomp.element_bootstrap import bootstrap_registry, superbucket_report  # noqa: E402
 from docdecomp.element_extraction import run_element_extraction  # noqa: E402
 from docdecomp.element_index import build_index  # noqa: E402
-from docdecomp.element_matching import match_paper_elements  # noqa: E402
+from docdecomp.element_matching import bulk_match_elements, match_paper_elements  # noqa: E402
 from docdecomp.element_registry import (  # noqa: E402
     load_registry,
     load_seeds,
@@ -148,12 +148,16 @@ def run_bootstrap(config: AppConfig, client: Any, report: Report = lambda m: Non
 
     config.elements_data_dir.mkdir(parents=True, exist_ok=True)
     if config.elements_registry_path.exists():
-        report("registry exists: stream-matching all papers (no re-consolidation)")
+        report("registry exists: bulk-matching all papers (no re-consolidation)")
         registry = load_registry(config.elements_registry_path)
-        # registry 原地变更,必须串行;勿并行化
-        for paper_dir in papers:
-            if (paper_dir / "elements.json").exists():
-                match_paper_elements(paper_dir, registry, client, config.elements_log_path)
+        # 判同并行(只读提案);落账在 bulk 内部串行 —— 单写入者不变,勿再并行化落账
+        papers_with_elements = [p for p in papers if (p / "elements.json").exists()]
+        bstats = bulk_match_elements(
+            papers_with_elements, registry, client, config.elements_log_path,
+            parallel=parallel)
+        report(
+            f"bulk match: groups={bstats['groups_total']} ai_calls={bstats['ai_calls']} "
+            f"created={bstats['created']} failed_chunks={bstats['judge_failed_chunks']}")
         save_registry(config.elements_registry_path, registry)
     else:
         report("consolidating registry (one-time)")
