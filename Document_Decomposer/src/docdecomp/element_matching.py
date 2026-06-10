@@ -104,6 +104,54 @@ def match_paper_elements(paper_dir: Path, registry: dict, client, log_path: Path
 # ---------------------------------------------------------------------------
 
 
+def collect_unresolved(
+    paper_dirs: list[Path], registry: dict,
+) -> tuple[dict[Path, dict], set[Path], list[dict]]:
+    """Pass over papers' elements.json: resolve what a hash lookup can, gather the rest.
+
+    Returns (docs, dirty, groups):
+      docs   – elements.json path -> parsed doc (mutated in memory)
+      dirty  – paths whose docs changed (exact hits / redirect re-points)
+      groups – [{facet, surface, refs: [(path, occ_index)]}], deduped by (facet, norm_key)
+    纯脚本、零 AI;悬空 canonical_id(指向不存在条目)按未解析收集 → 自愈。
+    """
+    index: dict[tuple[str, str], str] = {}
+    for entry in registry["entries"].values():
+        rid = resolve_id(registry, entry["id"])
+        for name in [entry["display_name"], *entry["aliases"]]:
+            index.setdefault((entry["facet"], norm_key(name)), rid)
+
+    docs: dict[Path, dict] = {}
+    dirty: set[Path] = set()
+    groups: dict[tuple[str, str], dict] = {}
+    for paper_dir in paper_dirs:
+        path = paper_dir / "elements.json"
+        if not path.exists():
+            continue
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        docs[path] = doc
+        for i, occ in enumerate(doc.get("occurrences") or []):
+            cid = occ.get("canonical_id")
+            if cid is not None and cid in registry["entries"]:
+                rid = resolve_id(registry, cid)
+                if rid != cid:
+                    occ["canonical_id"] = rid
+                    dirty.add(path)
+                continue
+            facet, surface = occ["facet"], occ["surface"]
+            hit = index.get((facet, norm_key(surface)))
+            if hit:
+                occ["canonical_id"] = hit
+                dirty.add(path)
+                continue
+            g = groups.setdefault(
+                (facet, norm_key(surface)),
+                {"facet": facet, "surface": surface, "refs": []},
+            )
+            g["refs"].append((path, i))
+    return docs, dirty, list(groups.values())
+
+
 def _shortlist_candidates(registry: dict, facet: str, surface: str, cap: int = 8) -> list[dict]:
     """Same-facet, non-redirected entries ranked by norm_key token overlap.
 
