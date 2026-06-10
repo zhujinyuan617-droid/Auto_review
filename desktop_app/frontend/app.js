@@ -8,6 +8,7 @@ const ROUTES = {
   writing: () => import("/assets/views/writing.js"),
   settings: () => import("/assets/views/settings.js"),
   groups: () => import("/assets/views/groups.js"),
+  elements: () => import("/assets/views/elements_search.js"),
 };
 
 function parseHash() {
