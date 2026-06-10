@@ -63,6 +63,25 @@ def build_index(library_dir: Path, registry: dict, db_path: Path) -> int:
                  int(o.get("digits_verified", False)),
                  json.dumps(o.get("values") or [], ensure_ascii=False))
             )
+        # topic 不产 occurrence(住在卡片 classification.topic_ids 上)——灌成合成行,
+        # 让"主题"在 query/refine/共现里与其他 facet 平权(否则左树可见、一勾全零)。
+        card_path = elements_path.parent / "literature_card.json"
+        if card_path.exists():
+            try:
+                card = json.loads(card_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                card = {}
+            pid = data.get("paper_id") or elements_path.parent.name
+            seen_topics: set[str] = set()
+            for tid in (card.get("classification") or {}).get("topic_ids") or []:
+                teid = resolve_id(registry, str(tid))
+                entry = registry["entries"].get(teid)
+                if not entry or teid in seen_topics:
+                    continue
+                seen_topics.add(teid)
+                occ_rows.append(
+                    (pid, teid, "topic", entry["display_name"], "", "", "used", 0, "[]")
+                )
     with _REINDEX_LOCK:
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA busy_timeout=5000")  # explicit: readers must wait out a rebuild transaction instead of raising "database is locked"

@@ -228,6 +228,35 @@ def test_bulk_match_end_to_end_and_idempotent(tmp_path: Path):
     assert stats2["ai_calls"] == 0 and stats2["created"] == 0 and stats2["papers_written"] == 0
 
 
+def test_build_index_injects_card_topics_as_queryable_rows(tmp_path: Path):
+    """用户实测 bug:勾"主题"全树归零——topic 住在卡片上,从没进过索引。"""
+    import sqlite3
+    from docdecomp.element_index import build_index, refine_counts
+    from docdecomp.element_matching import bulk_match_elements
+    from docdecomp.element_registry import create_entry
+
+    reg = new_registry_from_seeds(SEEDS)
+    log = tmp_path / "log.jsonl"
+    tid = create_entry(reg, "topic", "underground hydrogen storage", "auto-stream", log)
+    p1 = tmp_path / "S01"
+    _write_elements(p1, [_occ("characterization", "XRD")])
+    (p1 / "literature_card.json").write_text(
+        json.dumps({"paper_id": "S01", "classification": {"topic_ids": [tid]}}),
+        encoding="utf-8")
+    bulk_match_elements([p1], reg, None, log, parallel=1)  # XRD exact 归一
+    db = tmp_path / "elements_index.sqlite"
+    build_index(tmp_path, reg, db)
+
+    conn = sqlite3.connect(db)
+    rows = list(conn.execute(
+        "SELECT facet, surface, role FROM occurrences WHERE element_id=?", (tid,)))
+    conn.close()
+    assert rows == [("topic", "underground hydrogen storage", "used")]
+    papers, counts = refine_counts(db, [tid], "used")
+    assert papers == ["S01"]                      # 勾主题 → 命中论文,不再归零
+    assert counts.get("elem:characterization/x-ray-diffraction") == 1  # 交叉计数活了
+
+
 def test_bulk_match_no_client_creates_directly(tmp_path: Path):
     from docdecomp.element_matching import bulk_match_elements
     reg = new_registry_from_seeds(SEEDS)
