@@ -143,7 +143,8 @@ def run_command(command: list[str], dry_run: bool, log_path: Path | None = None)
     env = os.environ.copy()
     env.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
     env.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, env=env)
+    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, env=env,
+                               encoding="utf-8", errors="replace")
     if log_path:
         output = f"$ {command_text(command)}\n\n"
         if completed.stdout:

@@ -486,13 +486,10 @@ def rebuild_connection_layer() -> int:
     source_mode = "on" if confirm("判关系时额外喂 abstract/conclusion？更慢但更稳", False) else "off"
     force_edges = confirm("是否强制重判关系并忽略 edge cache？", False)
     steps = [
+        # 词表已退役为注册表纯脚本派生(ISSUES I12/I18):绝不再调 AI 归一的 build_vocabulary
         [
             sys.executable,
-            str(ROOT / "scripts" / "connect" / "build_vocabulary.py"),
-            "--library-dir",
-            "library",
-            "--config",
-            AI_CONFIG_ARG,
+            str(ROOT / "scripts" / "elements" / "derive_vocabulary.py"),
         ],
         [
             sys.executable,

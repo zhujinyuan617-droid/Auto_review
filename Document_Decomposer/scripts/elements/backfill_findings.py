@@ -102,9 +102,10 @@ def main() -> int:
     # ------------------------------------------------------------------
     # Phase B: re-match + reindex (serial, only if registry exists)
     # ------------------------------------------------------------------
+    # 与全仓库其余写者同一对产物(裂脑教训:index.db/element_events.log 是无人读的旁支)
     registry_path = data_dir / "registry.json"
-    db_path = data_dir / "index.db"
-    log_path = data_dir / "element_events.log"
+    db_path = data_dir / "elements_index.sqlite"
+    log_path = data_dir / "registry_log.jsonl"
 
     if registry_path.exists():
         # bulk 的归一作用域 = 全库,与本轮抽取成败(ok)解耦:即便 Phase A 全失败,
