@@ -41,7 +41,8 @@
 
 ## elements/ —— 研究要素索引(SP1+换代;设计见 docs/superpowers/specs/ 两份 2026-06-10 文档)
 - `ai_extract_elements.py` — AI 抽取每篇用过的 制备/测量/表征/模拟/分析/材料/条件/**发现** 八类要素;逐字引文双档核真(存在性+数字保真),核不过即丢;`--parallel`(默认 6)。
-- `backfill_findings.py` — 对已有要素文件的论文**只补抽 finding**(幂等、并行);补完自动流式匹配+重建索引。
+- `backfill_findings.py` — 对已有要素文件的论文**只补抽 finding**(幂等、并行);补完自动归一+重建索引。
+  归一默认**批量判同 bulk**(提案并行/落账串行,全库自愈);`--match-mode stream` 走旧逐篇路径。
 - `bootstrap_element_registry.py` — 一次性引导:全库 surface 归并 → `data/elements/registry.json` + SQLite 索引;防大杂烩桶(I12 纪律);registry 已存在时拒绝重跑。
 - `import_topic_vocabulary.py` — 一次性:把旧词表 topic canonical 导入注册表 topic 类(种子,幂等)。
 - `derive_vocabulary.py` — 从注册表**纯脚本派生** `vocabulary.json`(topic←topic、method←制备∪测量∪模拟、object←material;首跑自动备份原词表;人工锁定条目在冲突时优先)。
