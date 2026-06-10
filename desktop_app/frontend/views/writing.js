@@ -66,6 +66,19 @@ function draftSection() {
   box.append(el("p", { class: "muted", text: "用所选论文 + 连接层证据生成一节草稿。会真实调用 AI,需数十秒到数分钟。" }));
   const topic = el("input", { class: "search", placeholder: "主题,如:methane adsorption in clay nanopores" });
   const papers = el("input", { class: "search", placeholder: "论文号,逗号分隔,如 S09,S108" });
+  // 检索屏「送写作」的命中集种子(Wave-3 ⑤):读后即清,预填可删减
+  try {
+    const seed = JSON.parse(sessionStorage.getItem("writingSeedPapers") || "null");
+    sessionStorage.removeItem("writingSeedPapers");
+    const seedTopic = sessionStorage.getItem("writingSeedTopic") || "";
+    sessionStorage.removeItem("writingSeedTopic");
+    if (Array.isArray(seed) && seed.length) {
+      papers.value = seed.join(",");
+      if (seedTopic) topic.value = seedTopic;
+      box.append(el("p", { class: "muted",
+        text: `已带入检索命中 ${seed.length} 篇(可删减);主题预填了所选要素,请按需要改写。` }));
+    }
+  } catch (err) { /* sessionStorage 不可用:跳过种子 */ }
   const status = el("div", { class: "section" });
   const btn = el("button", { text: "出稿" });
   btn.addEventListener("click", async () => {

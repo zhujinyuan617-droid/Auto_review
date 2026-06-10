@@ -112,6 +112,10 @@ a.back { font-size: 13px; color: #0969da; text-decoration: none; }
 .map-fig-strip { display: flex; gap: 6px; margin: 4px 0 6px; }
 .map-fig-strip img { width: 31%; height: 64px; object-fit: contain; background: #fff;
   border: 1px solid #d0d7de; border-radius: 6px; cursor: zoom-in; }
+/* 检索屏(Wave-3 ⑤):命中头行 + 可点的共现行 */
+.results-head { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
+.co-row { cursor: pointer; border-radius: 6px; }
+.co-row:hover { background: #ddf4ff; }
 /* 拆解页"原文段↗"展开块 + 深链定位横幅(Wave-3 ③) */
 .block-ctx { background: #f6f8fa; border-left: 3px solid #0969da; border-radius: 0 6px 6px 0;
   padding: 8px 12px; margin: 6px 0; font-size: 13px; }
