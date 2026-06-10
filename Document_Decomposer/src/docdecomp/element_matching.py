@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .element_registry import add_alias, create_entry, find_by_surface, resolve_id
+from .element_registry import add_alias, create_entry, find_by_surface, norm_key, resolve_id
 from .io_utils import write_json
 
 MATCH_SCHEMA_HINT = (
@@ -96,3 +96,30 @@ def match_paper_elements(paper_dir: Path, registry: dict, client, log_path: Path
 
     write_json(path, data)
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Bulk matching (SP-Speed): propose in parallel, commit serially.
+# 设计:docs/superpowers/specs/2026-06-10-speed-sp-design.md
+# ---------------------------------------------------------------------------
+
+
+def _shortlist_candidates(registry: dict, facet: str, surface: str, cap: int = 8) -> list[dict]:
+    """Same-facet, non-redirected entries ranked by norm_key token overlap.
+
+    Zero-overlap entries are excluded — the AI judges against a SHORT list, never
+    the whole facet (prompt size + anti-superbucket discipline).
+    """
+    tokens = set(norm_key(surface).split())
+    if not tokens:
+        return []
+    scored: list[tuple[int, str, dict]] = []
+    for entry in registry["entries"].values():
+        if entry["facet"] != facet or entry.get("redirect_to"):
+            continue
+        names = [entry["display_name"], *entry["aliases"]]
+        best = max((len(tokens & set(norm_key(n).split())) for n in names), default=0)
+        if best > 0:
+            scored.append((-best, entry["display_name"], entry))
+    scored.sort(key=lambda t: (t[0], t[1]))
+    return [entry for _, _, entry in scored[:cap]]
