@@ -33,7 +33,7 @@ _SYSTEM = (
     "You consolidate raw research-element surface forms into canonical groups for ONE facet.\n"
     "Rules:\n"
     "1. Group ONLY true same-thing variants (abbreviation, spelling, plural, word order). "
-    "Different techniques/materials/quantities must stay separate.\n"
+    "Different things (techniques, materials, quantities, topics, findings) must stay separate.\n"
     "2. A group has at most 8 members. No catch-all groups like 'other methods'.\n"
     "3. canonical = the most common full English name. If a surface matches one of the "
     "existing canonical names provided, use exactly that existing name as the group's canonical.\n"

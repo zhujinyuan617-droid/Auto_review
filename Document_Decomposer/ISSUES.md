@@ -104,14 +104,14 @@
 - 状态:已知;现有中文已隔离(I8),但**新导入仍会触发**。
 
 ### I18. 管线换代过渡期(2026-06-10 登记;换代分支 feature/pipeline-regen)
-- 现库 152+ 份 elements.json 为七类时代产物,**无 finding 类**;拆解页已做空投影回退(无 finding→读旧 atoms),
+- 现库 152+ 份 elements.json 为七类时代产物,**无 finding 类**;拆解页已做空投影回退(analyses 与 results **双双为空**才回退旧 atoms;有方法要素无 finding 的论文走要素路径、结果栏空),
   finding 须经 `backfill_findings.py` 补抽后才完整。**补抽前禁止把拆解页质量当真。**
 - 卡片 v2(0.2.0)与 v3(0.3.0)并存:validator 已兼容双版本;v2 卡的 research_objects/methods 仍是 AI 旧标签,
   须跑 card_tags 全库回填(`run_pipeline --all --stage card_tags`)后才与要素同源。
 - **重建顺序铁律**:要素构建完成 → finding 补抽 → card_tags 回填 → import_topic_vocabulary → resolve_topics_bulk
   → derive_vocabulary → 候选边/判边/概念索引重建。乱序会让候选边召回静默塌缩(新旧词汇错配)。
 - **注册表合并会使已派生的卡片标签过期**(merge 不复制别名到目标):人工 merge 后须重跑 card_tags 回填 + derive_vocabulary + 边重建。
-- 状态:机制已建,全库各回填批次未跑(见 plans/2026-06-10-pipeline-regen.md 运营清单)。
+- 状态:机制已建,全库各回填批次未跑(见 docs/superpowers/plans/2026-06-10-pipeline-regen.md 运营清单)。
 
 ### I19. 机构归一 v1 的两个已知缺口(2026-06-10 登记)
 - PDF 兜底把整行单位串(含院系/邮编)当机构名,与 OpenAlex 规范名不互认 → 近重复机构条目;占比小(OpenAlex 为主),

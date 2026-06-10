@@ -20,7 +20,8 @@ MATCH_SCHEMA_HINT = (
 _SYSTEM = (
     "You map raw research-element surface forms onto an existing registry of canonical "
     "elements for ONE facet. Map a surface to an element_id ONLY if they denote the same "
-    "technique/material/quantity (abbreviation, spelling or wording variant). If it is a "
+    "real-world thing (technique, material, quantity, topic, institution, or finding claim) "
+    "(abbreviation, spelling or wording variant). If it is a "
     "genuinely different element, return null for it. Never guess."
 )
 
