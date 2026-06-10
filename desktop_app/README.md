@@ -11,7 +11,7 @@ client and a `sys.path` bridge (`engine_bridge.py`); no engine code is modified.
 ## Status (2026-06-09)
 
 Backend milestones **M1–M7 implemented and merged to `main`**. The desktop test
-suite is **119 tests, all passing offline** — verified by
+suite is **154 tests, all passing offline** — verified by
 `.venv\Scripts\python -m pytest -q` from `desktop_app/`, with the AI client,
 network, and OS keychain all replaced by fakes in tests (no real DeepSeek call,
 no network, no real credential written). Scope: this is the `desktop_app` suite
@@ -21,10 +21,15 @@ only; it is NOT a full-library rerun of the engine pipeline.
 opening, the PyInstaller installer, and macOS signing/notarization. See
 `PACKAGING.md`.
 
+Element-index layer (SP1+SP2: per-paper element extraction with verbatim-anchor
+verification, seed->bootstrap->streaming registry, SQLite index, search + stats
+screens, CJK language gate at import) is implemented with offline tests; the
+real-library bootstrap run and the 20-paper sampling audit have NOT been
+executed yet (see docs/superpowers/specs/2026-06-09-element-index-design.md §9).
+
 **Deferred** (each plan's "out of scope" in `../docs/superpowers/plans/`):
 wiring discovery search/download to live APIs + a real writing-brief builder + AI
-angle ranking; the Docling / Sci-Hub / screenshot plugins; and the real frontend
-screens (only a minimal `frontend/index.html` exists).
+angle ranking; the Docling / Sci-Hub / screenshot plugins.
 
 ## What it does (HTTP API surface)
 
@@ -37,6 +42,7 @@ screens (only a minimal `frontend/index.html` exists).
 | Single-paper view | `GET /papers/{id}/decomposition` |
 | Discovery | `POST /discovery/import-ris`, `POST /discovery/search` |
 | Writing | `POST /writing/check`, `POST /writing/draft`, `GET /writing/angles` |
+| Elements | `GET /elements/overview`, `GET /elements/stats`, `GET /elements`, `GET /elements/{facet}/{slug}` (+`/cooccurrence`), `POST /elements/query`, `PUT /elements/{facet}/{slug}`, `POST /elements/bootstrap`, `GET /elements/coverage`, `GET /papers/{id}/elements` |
 | Settings | `GET`/`POST`/`DELETE /settings/apikey`, `GET /settings/setup-manifest` |
 
 ## Module map (`src/autoreview_app/`)
@@ -62,7 +68,7 @@ screens (only a minimal `frontend/index.html` exists).
 py -m venv .venv
 .venv\Scripts\python -m pip install -e .                 # app + runtime deps (pyproject)
 .venv\Scripts\python -m pip install -r requirements.txt  # + test deps (pytest, httpx)
-.venv\Scripts\python -m pytest -q                        # 119 passed, offline
+.venv\Scripts\python -m pytest -q                        # 154 passed, offline
 .venv\Scripts\python -m autoreview_app.main              # opens the window (manual GUI smoke)
 ```
 
