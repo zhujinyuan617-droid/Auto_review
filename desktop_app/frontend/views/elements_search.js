@@ -23,7 +23,7 @@ export async function render(view, params) {
     facets = ov.facets;
     titles = Object.fromEntries((lib.papers || []).map((p) => [p.paper_id, p.title || ""]));
   } catch (err) {
-    if (err.code === 503) return empty(view, "尚未构建要素索引 — 到「全库统计」页点一次「构建要素索引」。");
+    if (err.code === 503) return empty(view, "尚未构建要素索引 — 回知识地图首页,点右上角状态角标一键构建。");
     return errorState(view, err.message, () => render(view, params));
   }
 

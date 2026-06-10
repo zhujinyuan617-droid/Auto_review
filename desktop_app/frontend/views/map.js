@@ -120,11 +120,24 @@ export async function render(view) {
   const searchDrop = el("div", { class: "map-search-drop", hidden: "" });
   const topcenter = el("div", { class: "map-overlay map-topcenter" }, [searchInput, searchChip, searchDrop]);
 
+  // 状态角标 = 构建入口(Wave-3 ②:统计屏撤并后,"构建要素索引"的家在地图上):
+  // 缺要素 → 可点,打开一键构建面板;全量就位 → 纯展示。
   const statusBadge = el("div", { class: "map-overlay map-status" });
   const nPapers = coverage ? coverage.papers : (payload.nodes || []).length;
-  statusBadge.textContent = coverage
-    ? `${nPapers} 篇 · 要素 ${coverage.with_elements}/${coverage.papers}`
-    : `${nPapers} 篇`;
+  if (coverage) {
+    statusBadge.textContent = `${nPapers} 篇 · 要素 ${coverage.with_elements}/${coverage.papers}`;
+    if (coverage.with_elements < coverage.papers) {
+      statusBadge.classList.add("map-status-action");
+      statusBadge.title = "有论文还没生成研究要素,点击一键补全";
+      statusBadge.addEventListener("click", () =>
+        showBuildPanel(coverage.papers - coverage.with_elements));
+    }
+  } else {
+    statusBadge.textContent = `${nPapers} 篇 · 要素未构建`;
+    statusBadge.classList.add("map-status-action");
+    statusBadge.title = "点击构建要素索引(方法/材料镜头与检索都靠它)";
+    statusBadge.addEventListener("click", () => showBuildPanel(null));
+  }
 
   const arrivalsBadge = el("button", { class: "map-arrivals", hidden: "" });
   if (batch.length) {
@@ -610,49 +623,53 @@ export async function render(view) {
   }
 
   // ---- 区面板:该区年代跨度内库中首现的要素(GET /map/first-seen;Wave-3 ①
-  //      时间镜头退役后,"要素首现"的新家) ----
+  //      时间镜头退役后,"要素首现"的新家)。折叠 + 展开才拉数据 ----
   function firstSeenSection(y0, y1) {
-    const box = el("div", { class: "map-panel-sec" }, [
-      el("h4", { class: "map-facet-head", text: `本区年代 ${y0}–${y1} · 该时期库内首现的要素` }),
-    ]);
+    const det = el("details", { class: "map-panel-sec" });
+    det.append(el("summary", { class: "map-facet-head", text: "该时期库内首现的要素" }));
     const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
-    box.append(slot);
-    getJSON(`/map/first-seen?year_from=${y0}&year_to=${y1}`)
-      .then((d) => {
-        clear(slot);
-        const list = d.elements || [];
-        if (!list.length) return slot.append(el("p", { class: "muted", text: "该年代没有首现的要素。" }));
-        for (const e2 of list) {
-          slot.append(el("div", {
-            class: "map-first-seen-row",
-            text: `${e2.name}(首现 ${e2.first_year} · 后续 ${Math.max(0, (e2.papers_total || 1) - 1)} 篇)`,
-            title: `首现于 ${paperLabel(e2.first_paper, 60)}`,
+    det.append(slot);
+    let loaded = false;
+    det.addEventListener("toggle", () => {
+      if (!det.open || loaded) return;
+      loaded = true;
+      getJSON(`/map/first-seen?year_from=${y0}&year_to=${y1}`)
+        .then((d) => {
+          clear(slot);
+          const list = d.elements || [];
+          if (!list.length) return slot.append(el("p", { class: "muted", text: "该年代没有首现的要素。" }));
+          for (const e2 of list) {
+            slot.append(el("div", {
+              class: "map-first-seen-row",
+              text: `${e2.name}(首现 ${e2.first_year} · 后续 ${Math.max(0, (e2.papers_total || 1) - 1)} 篇)`,
+              title: `首现于 ${paperLabel(e2.first_paper, 60)}`,
+            }));
+          }
+        })
+        .catch((err) => {
+          clear(slot);
+          slot.append(el("p", {
+            class: "muted",
+            text: err.code === 503 ? "要素索引未构建(点右上角状态角标一键构建)。" : "首现数据加载失败:" + err.message,
           }));
-        }
-      })
-      .catch((err) => {
-        clear(slot);
-        slot.append(el("p", {
-          class: "muted",
-          text: err.code === 503 ? "要素索引未构建(到「找 → 全库统计」构建)。" : "首现数据加载失败:" + err.message,
-        }));
-      });
-    return box;
+        });
+    });
+    return det;
   }
 
-  // ---- 机构镜头:该机构的研究面貌(GET /map/institution-elements) ----
-  function institutionSection(instId) {
+  // ---- 论文集×要素画像区块(共用):机构面貌 / 区高频要素(撤并自统计屏) ----
+  function facetProfileSection(heading, url, emptyText) {
     const box = el("div", { class: "map-panel-sec" }, [
-      el("h4", { class: "map-facet-head", text: "该机构的研究面貌" }),
+      el("h4", { class: "map-facet-head", text: heading }),
     ]);
     const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
     box.append(slot);
-    getJSON(`/map/institution-elements?id=${encodeURIComponent(instId)}`)
+    getJSON(url)
       .then((d) => {
         clear(slot);
         const facets = d.facets || {};
         const keys = Object.keys(facets);
-        if (!keys.length) return slot.append(el("p", { class: "muted", text: "暂无要素数据(该机构论文的要素未构建)。" }));
+        if (!keys.length) return slot.append(el("p", { class: "muted", text: emptyText }));
         for (const f of keys) {
           slot.append(el("div", { class: "map-side-meta", text: f }));
           const wrap = el("div", { class: "map-chip-wrap" });
@@ -664,9 +681,23 @@ export async function render(view) {
       })
       .catch((err) => {
         clear(slot);
-        slot.append(el("p", { class: "muted", text: "研究面貌加载失败:" + err.message }));
+        slot.append(el("p", { class: "muted", text: err.code === 503
+          ? "要素索引未构建(点右上角状态角标一键构建)。"
+          : "要素画像加载失败:" + err.message }));
       });
     return box;
+  }
+
+  function institutionSection(instId) {
+    return facetProfileSection("该机构的研究面貌",
+      `/map/institution-elements?id=${encodeURIComponent(instId)}`,
+      "暂无要素数据(该机构论文的要素未构建)。");
+  }
+
+  function regionElementsSection(c) {
+    return facetProfileSection("本区高频要素",
+      `/map/region-elements?lens=${encodeURIComponent(S.lens)}&cluster=${encodeURIComponent(c.id)}`,
+      "本区论文的要素未构建。");
   }
 
   function showRegion(c) {
@@ -677,7 +708,11 @@ export async function render(view) {
       body.append(descSlot);
       fillRegionDesc(c, descSlot);
       S.regionPanel = { cluster: c, slot: descSlot };
-      // 年代跨度(年轮口径:区心最老、区缘最新)+ 该时期库内首现要素
+      // 本区高频要素(Wave-3 ②:统计屏总览的新家;misc 区成员太杂,不画画像)
+      if (S.hasBackendClusters && !c.misc && S.lens !== "institution") {
+        body.append(regionElementsSection(c));
+      }
+      // 年代跨度(年轮口径:区心最老、区缘最新)+ 该时期库内首现要素(折叠懒加载)
       const years = c.members.map((n) => n.year).filter((y) => y != null);
       if (years.length && S.lens !== "institution") {
         const y0 = Math.min(...years), y1 = Math.max(...years);
@@ -725,42 +760,57 @@ export async function render(view) {
     regionTitle(c); // openPanel 只接受纯文本标题,区标题行(徽标+改名)在这之后自绘
   }
 
+  // ---- 一键构建(共用):待构建区面板 + 状态角标面板都走这套按钮/轮询 ----
+  function buildControls(btnText) {
+    const btn = el("button", { class: "map-btn", text: btnText });
+    const log = el("pre", { class: "muted map-build-log" });
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "构建中…(可离开本屏,任务在后台继续)";
+      try {
+        const { job_id } = await postJSON("/elements/bootstrap", {});
+        const job = await pollJob(job_id, {
+          hashPrefix: "#/map",
+          intervalMs: 2000,
+          onTick: (j) => { log.textContent = (j.progress || []).slice(-6).join("\n"); },
+        });
+        if (job.status === "succeeded") {
+          showToast("构建完成,刷新地图…");
+          render(view); // 重新拉 /map:要素集指纹已变,灰点自动归位
+        } else if (job.status === "detached") {
+          // 用户已切去别屏:任务继续在后台跑,不打扰
+        } else {
+          showToast("构建未完成:" + (job.error || job.status));
+          btn.disabled = false;
+          btn.textContent = btnText;
+        }
+      } catch (err) {
+        showToast("构建启动失败:" + err.message);
+        btn.disabled = false;
+        btn.textContent = btnText;
+      }
+    });
+    return { btn, log };
+  }
+
+  function showBuildPanel(missing) {
+    openPanel("构建要素索引", (body) => {
+      body.append(el("p", { class: "muted", text: missing == null
+        ? "整库还没有要素索引。构建后,方法/材料镜头、要素检索、区面板画像才有数据(可中断,下次续跑缺失部分)。"
+        : `还有 ${missing} 篇没有研究要素。一键补全(增量:只跑缺失的,不重复花钱)。` }));
+      const { btn, log } = buildControls("开始构建");
+      body.append(el("div", { class: "map-paper-actions" }, [btn]), log);
+    });
+  }
+
   // ---- 待构建区面板(Wave-3 ①):解释 + 一键增量构建 + 成员清单 ----
   function showUnbuilt(c) {
     focusCluster(c);
-    const btnText = `一键构建要素(${c.members.length} 篇)`;
     openPanel(`待构建(${c.members.length} 篇)`, (body) => {
       body.append(el("p", { class: "muted", text:
         `这 ${c.members.length} 篇的研究要素还没有生成,所以暂时进不了任何分区。` +
         "点下面按钮一键构建(增量,只补缺的);完成后这些点会自动落进对应的区。" }));
-      const btn = el("button", { class: "map-btn", text: btnText });
-      const log = el("pre", { class: "muted map-build-log" });
-      btn.addEventListener("click", async () => {
-        btn.disabled = true;
-        btn.textContent = "构建中…(可离开本屏,任务在后台继续)";
-        try {
-          const { job_id } = await postJSON("/elements/bootstrap", {});
-          const job = await pollJob(job_id, {
-            hashPrefix: "#/map",
-            intervalMs: 2000,
-            onTick: (j) => { log.textContent = (j.progress || []).slice(-6).join("\n"); },
-          });
-          if (job.status === "succeeded") {
-            showToast("构建完成,刷新地图…");
-            render(view); // 重新拉 /map:要素集指纹已变,灰点自动归位
-          } else if (job.status === "detached") {
-            // 用户已切去别屏:任务继续在后台跑,不打扰
-          } else {
-            showToast("构建未完成:" + (job.error || job.status));
-            btn.disabled = false;
-            btn.textContent = btnText;
-          }
-        } catch (err) {
-          showToast("构建启动失败:" + err.message);
-          btn.disabled = false;
-          btn.textContent = btnText;
-        }
-      });
+      const { btn, log } = buildControls(`一键构建要素(${c.members.length} 篇)`);
       body.append(el("div", { class: "map-paper-actions" }, [btn]), log);
       for (const n of c.members) {
         const t = (titles[n.id] && titles[n.id].title) || "";
@@ -799,6 +849,31 @@ export async function render(view) {
       b3.addEventListener("click", () => openCloseup(n.id));
       body.append(el("div", { class: "map-paper-actions" }, [b1, b2, b3]));
 
+      // 图表前 3 张(Wave-3 ②:图表墙撤屏后进论文卡;点开大图,完整画廊在详情页)
+      const figBox = el("div");
+      body.append(figBox);
+      getJSON(`/papers/${encodeURIComponent(n.id)}/figures`)
+        .then(async (d) => {
+          const figs = d.figures || [];
+          if (!figs.length) return;
+          const { openLightbox } = await import("/assets/views/figures.js");
+          const wrap = el("div", { class: "map-fig-strip" });
+          figs.slice(0, 3).forEach((name, i) => {
+            const img = el("img", {
+              src: `/papers/${encodeURIComponent(n.id)}/figures/${encodeURIComponent(name)}`,
+              loading: "lazy", alt: name, title: name,
+            });
+            img.addEventListener("error", () => img.remove());
+            img.addEventListener("click", () => openLightbox(n.id, figs, i));
+            wrap.append(img);
+          });
+          figBox.append(
+            el("h4", { class: "map-facet-head", text: `图表(共 ${figs.length} 张,点开看大图)` }),
+            wrap,
+          );
+        })
+        .catch(() => { /* 图表是锦上添花:拉不到就不显示 */ });
+
       const elemBox = el("div");
       elemBox.append(el("p", { class: "muted", text: "要素加载中…" }));
       body.append(elemBox);
@@ -823,7 +898,7 @@ export async function render(view) {
         })
         .catch((err) => {
           clear(elemBox);
-          elemBox.append(el("p", { class: "muted", text: err.code === 503 ? "要素索引未构建(到「找 → 全库统计」构建)。" : "要素加载失败:" + err.message }));
+          elemBox.append(el("p", { class: "muted", text: err.code === 503 ? "要素索引未构建(点右上角状态角标一键构建)。" : "要素加载失败:" + err.message }));
         });
     });
   }
@@ -995,7 +1070,7 @@ export async function render(view) {
       showChip(`要素「${hit.display_name}」· ${ids.size} 篇(Esc 清除)`);
       S.dirty = true;
     } catch (err) {
-      showToast(err.code === 503 ? "要素索引未构建,先到「找 → 全库统计」构建" : "检索失败:" + err.message);
+      showToast(err.code === 503 ? "要素索引未构建,点右上角状态角标一键构建" : "检索失败:" + err.message);
     }
   }
 
@@ -1084,7 +1159,7 @@ export async function render(view) {
     } catch (err) {
       lensSel.value = prev;
       showToast(err.code === 503
-        ? `「${LENS_NAMES[target] || target}」镜头需要先构建要素索引(到「找 → 全库统计」)`
+        ? `「${LENS_NAMES[target] || target}」镜头需要先构建要素索引(点右上角状态角标)`
         : "镜头加载失败:" + err.message);
     }
     lensSel.disabled = false; relayoutBtn.disabled = false;

@@ -658,14 +658,10 @@ def first_seen_in_range(config: AppConfig, year_from: int, year_to: int, top_n: 
     return {"year_from": year_from, "year_to": year_to, "elements": out[:top_n]}
 
 
-def institution_elements(config: AppConfig, inst_id: str, top_per_facet: int = 5) -> dict:
-    """机构×要素交叉:该机构论文的要素分布("这个所偏 GCMC/那个组全是实验")。零 AI。"""
-    papers = sorted(
-        p.name for p in _all_paper_dirs(config)
-        if inst_id in _paper_institutions(p)
-    )
+def _facet_profile(config: AppConfig, papers: list[str], top_per_facet: int = 5) -> dict:
+    """一组论文的要素画像:每 facet 按论文数取 top-N。零 AI。"""
     if not papers or not config.elements_db.exists():
-        return {"institution_id": inst_id, "papers": papers, "facets": {}}
+        return {}
     conn = sqlite3.connect(config.elements_db)
     conn.execute("PRAGMA busy_timeout=5000")
     try:
@@ -683,7 +679,25 @@ def institution_elements(config: AppConfig, inst_id: str, top_per_facet: int = 5
         bucket = facets.setdefault(facet, [])
         if len(bucket) < top_per_facet:
             bucket.append({"name": name, "papers": n})
-    return {"institution_id": inst_id, "papers": papers, "facets": facets}
+    return facets
+
+
+def institution_elements(config: AppConfig, inst_id: str, top_per_facet: int = 5) -> dict:
+    """机构×要素交叉:该机构论文的要素分布("这个所偏 GCMC/那个组全是实验")。"""
+    papers = sorted(
+        p.name for p in _all_paper_dirs(config)
+        if inst_id in _paper_institutions(p)
+    )
+    return {"institution_id": inst_id, "papers": papers,
+            "facets": _facet_profile(config, papers, top_per_facet)}
+
+
+def cluster_elements(config: AppConfig, lens: str, cluster: str, top_per_facet: int = 5) -> dict:
+    """区×要素画像(Wave-3 ②:全库统计屏的总览并入地图区面板)。"""
+    payload = lens_payload(config, lens)
+    papers = sorted(n["id"] for n in payload.get("nodes") or [] if n.get("cluster") == cluster)
+    return {"lens": lens, "cluster": cluster, "papers": len(papers),
+            "facets": _facet_profile(config, papers, top_per_facet)}
 
 
 def route(config: AppConfig, lens: str, cluster: str) -> dict:

@@ -92,6 +92,31 @@ async function renderDetail(view, id) {
   const btn = el("button", { text: "查看拆解 →" });
   btn.addEventListener("click", () => { location.hash = "#/papers/" + id + "/decompose"; });
   view.append(el("div", { class: "section" }, [btn]));
+
+  // 图表画廊(Wave-3 ②:图表墙撤屏后的完整画廊新家);拉不到图不挡详情
+  try {
+    const figs = (await getJSON("/papers/" + encodeURIComponent(id) + "/figures")).figures || [];
+    if (figs.length) {
+      const { openLightbox } = await import("/assets/views/figures.js");
+      const sec = el("div", { class: "section" }, [el("h3", { text: `图表(${figs.length} 张,点开看大图)` })]);
+      const grid = el("div", {
+        style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;",
+      });
+      figs.forEach((name, i) => {
+        const img = el("img", {
+          src: "/papers/" + encodeURIComponent(id) + "/figures/" + encodeURIComponent(name),
+          loading: "lazy", alt: name, title: name,
+          style: "width:100%;height:110px;object-fit:contain;background:#fff;" +
+            "border:1px solid #d0d7de;border-radius:6px;cursor:zoom-in;",
+        });
+        img.addEventListener("error", () => img.remove());
+        img.addEventListener("click", () => openLightbox(id, figs, i));
+        grid.append(img);
+      });
+      sec.append(grid);
+      view.append(sec);
+    }
+  } catch (err) { /* figures 可选 */ }
 }
 function blockList(title, blocks) {
   if (!blocks || blocks.length === 0) return null;

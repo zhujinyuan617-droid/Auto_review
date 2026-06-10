@@ -471,6 +471,13 @@ def create_app(
             return map_service.first_seen_in_range(config, year_from, year_to)
         raise HTTPException(status_code=400, detail="element_id or year_from+year_to required")
 
+    @app.get("/map/region-elements")
+    def map_region_elements(lens: str = "topic", cluster: str = "") -> dict[str, Any]:
+        # 区×要素画像(Wave-3 ②:统计屏总览并入区面板);要素索引未建时 503
+        _check_lens(lens)
+        _elements_db_or_503()
+        return map_service.cluster_elements(config, lens, cluster)
+
     @app.get("/map/institution-elements")
     def map_institution_elements(id: str) -> dict[str, Any]:
         return map_service.institution_elements(config, id)

@@ -142,7 +142,8 @@ function figURL(id, name) {
 
 // 全屏 lightbox:半透明遮罩 + 大图 + 左右切换(循环);Esc / 点遮罩关闭;
 // 切路由(hashchange)时也自动关闭,避免遮罩残留在别的页面上。
-function openLightbox(paperId, figures, startIndex) {
+// 导出共用(Wave-3 ②):地图论文卡前 3 张缩略图、论文详情页画廊都用它看大图。
+export function openLightbox(paperId, figures, startIndex) {
   let i = startIndex;
   const img = el("img", {
     style: "max-width:92vw;max-height:84vh;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.5);cursor:default;",

@@ -195,3 +195,29 @@ def test_route_review_first_then_size(tmp_path: Path):
     assert route["order"][0] == "S03"          # 综述优先
     assert route["order"][1] in ("S01", "S02")  # 其后按核心度
     assert len(route["start_with"]) <= 3
+
+
+def test_region_elements_profile(tmp_path: Path):
+    # Wave-3 ②:统计屏总览并入区面板 —— 区成员的 facet×要素 top 画像
+    client, cfg = _client(tmp_path)
+    _write_card(cfg.library_dir, "S01", topic_ids=["elem:topic/a"])
+    _write_card(cfg.library_dir, "S02", topic_ids=["elem:topic/a"])
+    _write_card(cfg.library_dir, "S03", topic_ids=["elem:topic/b"])  # 撑 idf>0,使 a 区成形
+    _write_elements_db(cfg, [
+        ("S01", "elem:simulation/gcmc", "simulation", "GCMC", "q", "S01-RB-0001", "used", 0, "[]"),
+        ("S02", "elem:simulation/gcmc", "simulation", "GCMC", "q", "S02-RB-0001", "used", 0, "[]"),
+        ("S02", "elem:material/kaolinite", "material", "kaolinite", "q", "S02-RB-0002", "used", 0, "[]"),
+    ])
+    conn = sqlite3.connect(cfg.elements_db)
+    conn.executemany("INSERT INTO elements VALUES (?,?,?,?,?,?)", [
+        ("elem:simulation/gcmc", "simulation", "gcmc", "GCMC", "[]", 0),
+        ("elem:material/kaolinite", "material", "kaolinite", "Kaolinite", "[]", 0),
+    ])
+    conn.commit()
+    conn.close()
+    cluster = client.get("/map?lens=topic").json()["nodes"][0]["cluster"]
+    body = client.get(f"/map/region-elements?lens=topic&cluster={cluster}").json()
+    assert body["papers"] == 2
+    sim = body["facets"]["simulation"]
+    assert sim[0]["name"] == "GCMC" and sim[0]["papers"] == 2
+    assert body["facets"]["material"][0]["papers"] == 1
