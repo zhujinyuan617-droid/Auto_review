@@ -8,7 +8,11 @@ DEFAULT_TEXTS = [
 ]
 
 
-def write_reading_blocks(library: Path, paper_id: str, blocks=None) -> Path:
+def write_reading_blocks(
+    library: Path,
+    paper_id: str,
+    blocks: list[tuple[str, str, str]] | None = None,
+) -> Path:
     """Minimal real-schema reading_blocks.json for one paper. Returns paper dir.
 
     Block ids derive from paper_id (Sxx-RB-0001...), matching the engine format.
