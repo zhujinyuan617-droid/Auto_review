@@ -9,7 +9,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from docdecomp.ai_client import OpenAICompatibleClient, load_ai_config  # noqa: E402
 from docdecomp.element_bootstrap import bootstrap_registry, superbucket_report  # noqa: E402
