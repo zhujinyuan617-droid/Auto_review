@@ -350,6 +350,39 @@ def create_app(
         return {"papers": len(papers), "with_authorship": len(done),
                 "pending": [p.name for p in papers if p.name not in set(done)]}
 
+    # ---- 图墙(SP-Map Task 7):Docling 已抽取图片的浏览;零 AI ----
+
+    _FIGURE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+    def _paper_dir_or_404(paper_id: str) -> Path:
+        d = (config.library_dir / paper_id)
+        if "/" in paper_id or "\\" in paper_id or ".." in paper_id or not d.is_dir():
+            raise HTTPException(status_code=404, detail="paper not found")
+        return d
+
+    @app.get("/papers/{paper_id}/figures")
+    def paper_figures(paper_id: str) -> dict[str, Any]:
+        fig_dir = _paper_dir_or_404(paper_id) / "figures"
+        if not fig_dir.is_dir():
+            return {"paper_id": paper_id, "figures": []}
+        names = sorted(
+            p.name for p in fig_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in _FIGURE_EXTS
+        )
+        return {"paper_id": paper_id, "figures": names}
+
+    @app.get("/papers/{paper_id}/figures/{name}")
+    def paper_figure_file(paper_id: str, name: str):
+        fig_dir = _paper_dir_or_404(paper_id) / "figures"
+        target = fig_dir / name
+        if (
+            "/" in name or "\\" in name or ".." in name
+            or not target.is_file() or target.parent != fig_dir
+            or target.suffix.lower() not in _FIGURE_EXTS
+        ):
+            raise HTTPException(status_code=404, detail="figure not found")
+        return FileResponse(target)
+
     # ---- 知识地图(SP-Map):镜头布局 / 着陆 / 重排 / 阅读路线;全机械零 AI ----
 
     def _check_lens(lens: str) -> None:
