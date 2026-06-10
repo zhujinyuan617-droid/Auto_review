@@ -45,8 +45,16 @@ batches NOT yet executed (see ISSUES I18 ordering).
 - **SP-Speed bulk matching**: registry normalization is now collect → shortlist →
   **parallel** AI judging → **serial** commit (`bulk_match_elements`); the
   bootstrap tail and `backfill_findings.py` default to it (`--match-mode stream`
-  keeps the legacy per-paper path). Real-library acceptance timing NOT yet
-  measured — see `../docs/superpowers/specs/2026-06-10-speed-sp-design.md` §6.
+  keeps the legacy per-paper path). Real-library acceptance: **3.2 min wall,
+  154 calls, 0 dangling** — see `../docs/superpowers/specs/2026-06-10-speed-sp-design.md` §6.
+- **SP-Map (feature/map-home)**: knowledge-map home screen — 5 switchable lenses
+  (topic/method/material/time/institution), deterministic IDF+label-propagation
+  clustering with cached FR layout (incremental placement for new papers),
+  arrivals card, ego closeup, reading routes, figure wall, linked facet counts
+  in the search screen (`/elements/refine`), nav regrouped to 找/读/写/设置.
+  All map math is mechanical (zero AI). Real-library smoke: 261 nodes,
+  topic lens 21 clusters, ~1s compute then cached. Browser-side interactions
+  NOT yet manually verified (checklist in the SP-Map plan).
 
 ## What it does (HTTP API surface)
 
@@ -61,6 +69,7 @@ batches NOT yet executed (see ISSUES I18 ordering).
 | Writing | `POST /writing/check`, `POST /writing/draft`, `GET /writing/angles` |
 | Elements | `GET /elements/overview`, `GET /elements/stats`, `GET /elements`, `GET /elements/{facet}/{slug}` (+`/cooccurrence`), `POST /elements/query`, `PUT /elements/{facet}/{slug}`, `POST /elements/bootstrap`, `GET /elements/coverage`, `GET /papers/{id}/elements` |
 | Settings | `GET`/`POST`/`DELETE /settings/apikey`, `GET`/`PUT /settings/parallel`, `GET /settings/setup-manifest` |
+| Map (home) | `GET /map?lens=`, `POST /map/relayout`, `GET /map/arrivals`, `GET /map/route`, `POST /elements/refine`, `GET /papers/{id}/figures` (+`/{name}`) |
 
 ## Module map (`src/autoreview_app/`)
 

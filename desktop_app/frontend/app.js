@@ -12,10 +12,11 @@ const ROUTES = {
   groups: () => import("/assets/views/groups.js"),
   elements: () => import("/assets/views/elements_search.js"),
   stats: () => import("/assets/views/elements_stats.js"),
+  figures: () => import("/assets/views/figures.js"),
 };
 
 function parseHash() {
-  const raw = (location.hash || "#/map").replace(/^#\//, "");
+  const raw = (location.hash || "#/map").replace(/^#\//, "").split("?")[0];
   const parts = raw.split("/").filter(Boolean);
   return { name: parts[0] || "map", params: parts.slice(1) };
 }
