@@ -1,0 +1,55 @@
+{
+  "schema_version": "0.1.0",
+  "facets": [
+    {"id": "preparation", "name_zh": "制备/处理", "name_en": "sample preparation & treatment",
+     "description": "How samples were made or treated: ball milling, acid washing, hydrothermal synthesis, drying, calcination, sieving."},
+    {"id": "measurement", "name_zh": "测量方法", "name_en": "measurement techniques",
+     "description": "How target quantities were measured: volumetric adsorption, gravimetric adsorption, breakthrough curves, pulse-decay permeability."},
+    {"id": "characterization", "name_zh": "表征", "name_en": "characterization techniques",
+     "description": "Instrumental characterization of samples: XRD, SEM, TEM, BET, FTIR, TGA, NMR, mercury intrusion porosimetry."},
+    {"id": "simulation", "name_zh": "模拟/计算", "name_en": "computational methods",
+     "description": "Simulation or computation methods: GCMC, MD, DFT, lattice Boltzmann, pore network modeling, machine learning models."},
+    {"id": "analysis", "name_zh": "分析内容", "name_en": "analysis contents",
+     "description": "What was quantified, fitted or analyzed: adsorption isotherm fitting, selectivity, diffusion coefficient, isosteric heat, pore size distribution."},
+    {"id": "material", "name_zh": "材料/对象", "name_en": "materials & objects",
+     "description": "Materials, minerals, fluids and systems studied: montmorillonite, kaolinite, illite, shale, kerogen, coal, CH4, CO2, H2O, slit pores."},
+    {"id": "condition", "name_zh": "条件", "name_en": "experimental/simulation conditions",
+     "description": "Numeric operating conditions: temperature, pressure range, moisture/water content, salinity, milling time, pore size. Quote must contain the numbers."}
+  ],
+  "synonyms": {
+    "characterization": {
+      "X-ray diffraction": ["XRD", "x ray diffraction"],
+      "scanning electron microscopy": ["SEM"],
+      "transmission electron microscopy": ["TEM"],
+      "N2 adsorption (BET)": ["BET", "BET surface area analysis", "nitrogen adsorption"],
+      "Fourier transform infrared spectroscopy": ["FTIR", "FT-IR"],
+      "thermogravimetric analysis": ["TGA"],
+      "nuclear magnetic resonance": ["NMR"],
+      "mercury intrusion porosimetry": ["MIP", "mercury porosimetry"]
+    },
+    "simulation": {
+      "grand canonical Monte Carlo": ["GCMC", "grand-canonical Monte Carlo"],
+      "molecular dynamics": ["MD", "molecular dynamics simulation"],
+      "density functional theory": ["DFT"],
+      "lattice Boltzmann method": ["LBM", "lattice Boltzmann"]
+    },
+    "preparation": {
+      "ball milling": ["mechanical milling", "ball-milling", "ball-milled"]
+    },
+    "measurement": {
+      "volumetric adsorption measurement": ["volumetric method"],
+      "gravimetric adsorption measurement": ["gravimetric method"]
+    },
+    "analysis": {
+      "adsorption isotherm": ["adsorption isotherms", "excess adsorption isotherm"],
+      "isosteric heat of adsorption": ["isosteric heat"],
+      "pore size distribution": ["PSD"]
+    },
+    "material": {
+      "montmorillonite": ["Na-montmorillonite", "Ca-montmorillonite", "MMT"],
+      "methane": ["CH4", "CH₄"],
+      "carbon dioxide": ["CO2", "CO₂"]
+    },
+    "condition": {}
+  }
+}
