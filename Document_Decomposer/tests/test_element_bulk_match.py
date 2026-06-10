@@ -105,3 +105,47 @@ def test_collect_repoints_redirected_canonical(tmp_path: Path):
     docs, dirty, groups = collect_unresolved([p1], reg)
     assert docs[p1 / "elements.json"]["occurrences"][0]["canonical_id"] == dst
     assert (p1 / "elements.json") in dirty and groups == []
+
+
+# ---------------------------------------------------------------------------
+# Task 3: _pack_chunks + _judge_chunks — bulk-match parallel judging
+# ---------------------------------------------------------------------------
+
+
+def test_pack_chunks_by_size_and_candidate_cap():
+    from docdecomp.element_matching import _pack_chunks
+    def item(n, k):
+        return {"facet": "material", "surface": f"s{n}",
+                "candidates": [{"id": f"c{n}-{j}"} for j in range(k)]}
+    items = [item(n, 5) for n in range(70)]
+    chunks = _pack_chunks(items, chunk_size=30, candidate_cap=120)
+    assert all(len(c) <= 30 for c in chunks)
+    for c in chunks:
+        union = {x["id"] for it in c for x in it["candidates"]}
+        assert len(union) <= 120
+    assert sum(len(c) for c in chunks) == 70
+
+
+def test_judge_chunks_maps_by_normkey_and_isolates_failures():
+    from docdecomp.element_matching import _judge_chunks
+
+    class _OneBoomClient:
+        def __init__(self):
+            self.n = 0
+        def chat_json(self, messages, hint):
+            self.n += 1
+            if self.n == 1:
+                raise RuntimeError("boom")
+            return {"matches": [{"surface": "Powder XRD",
+                                 "element_id": "elem:characterization/x-ray-diffraction"}]}
+
+    chunk_a = [{"facet": "characterization", "surface": "weird thing one", "candidates": []}]
+    chunk_b = [{"facet": "characterization", "surface": "powder xrd",
+                "candidates": [{"id": "elem:characterization/x-ray-diffraction",
+                                "display_name": "X-ray diffraction", "aliases": ["XRD"]}]}]
+    verdicts, failed, n_ok, n_failed = _judge_chunks(
+        {"characterization": [chunk_a, chunk_b]}, _OneBoomClient(), parallel=1)
+    assert ("characterization", "powder xrd") in verdicts          # norm_key 键
+    assert verdicts[("characterization", "powder xrd")] == "elem:characterization/x-ray-diffraction"
+    assert ("characterization", "weird thing one") in failed       # 失败块只标记不扩散
+    assert n_ok == 1 and n_failed == 1
