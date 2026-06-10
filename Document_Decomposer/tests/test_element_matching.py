@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from _fake_ai import SequencedFakeClient
 from _fixtures import write_reading_blocks
 from docdecomp.element_matching import match_paper_elements
@@ -65,3 +66,34 @@ def test_no_client_creates_entries_directly(tmp_path: Path):
     assert stats["created"] == 1
     data = json.loads((paper_dir / "elements.json").read_text(encoding="utf-8"))
     assert data["occurrences"][0]["canonical_id"] == "elem:material/kerogen-type-ii"
+
+
+def test_ai_echo_case_mismatch_falls_to_create(tmp_path: Path):
+    # 模型回显的 surface 大小写不一致时,匹配按"宁可漏"落到新建,绝不错挂。
+    paper_dir = write_reading_blocks(tmp_path, "S90")
+    _write_elements(paper_dir, [_occ("characterization", "powder X-ray diffraction")])
+    reg = new_registry_from_seeds(SEEDS)
+    client = SequencedFakeClient([
+        {"matches": [{"surface": "Powder X-Ray Diffraction",  # echoed with different case
+                      "element_id": "elem:characterization/x-ray-diffraction"}]}
+    ])
+    stats = match_paper_elements(paper_dir, reg, client, tmp_path / "log.jsonl")
+    data = json.loads((paper_dir / "elements.json").read_text(encoding="utf-8"))
+    assert data["occurrences"][0]["canonical_id"] == "elem:characterization/powder-x-ray-diffraction"
+    assert stats["created"] == 1 and stats["resolved_ai"] == 0
+
+
+class _ExplodingClient:
+    def chat_json(self, messages, response_schema_hint):
+        raise RuntimeError("boom")
+
+
+def test_chat_json_failure_leaves_elements_json_untouched(tmp_path: Path):
+    # all-or-nothing per paper: AI 挂掉时本篇 elements.json 不得被改写。
+    paper_dir = write_reading_blocks(tmp_path, "S90")
+    _write_elements(paper_dir, [_occ("characterization", "neutron scattering")])
+    before = (paper_dir / "elements.json").read_text(encoding="utf-8")
+    reg = new_registry_from_seeds(SEEDS)
+    with pytest.raises(RuntimeError):
+        match_paper_elements(paper_dir, reg, _ExplodingClient(), tmp_path / "log.jsonl")
+    assert (paper_dir / "elements.json").read_text(encoding="utf-8") == before
