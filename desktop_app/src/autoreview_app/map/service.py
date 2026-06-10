@@ -21,10 +21,13 @@ from .graph import (
     name_clusters,
     paper_features,
     similarity_edges,
+    split_oversized,
 )
 from .layout import SCHEMA_VERSION, fingerprint, fr_layout, incremental_place, spread_clusters
 
-PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "fr+lp-v2"}  # v2: 区级分离后处理
+# v3(地图质量包):烂大街要素剔出连边 + 巨型区递归再分 + lift 区名
+PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "fr+lp-v3", "max_cluster": 30}
+LENS_DF_CAP = {"topic": 0.35, "method": 0.30, "material": 0.30}  # 密核由 split 的语义分组兜底
 ARRIVAL_BATCH_GAP_MIN = 30
 
 ALL_LENSES = ["topic", "method", "material", "time", "institution"]
@@ -72,7 +75,8 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
     if cache and cache.get("fingerprint") == fp:
         return cache
 
-    edges = similarity_edges(feats, idf(feats), top_k=PARAMS["top_k"])
+    edges = similarity_edges(feats, idf(feats), top_k=PARAMS["top_k"],
+                             df_cap_ratio=LENS_DF_CAP.get(lens, 1.0))
     sizes = _degree_sizes(list(feats), edges)
     names = element_names(config.elements_db) if config.elements_db.exists() else {}
 
@@ -104,7 +108,11 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
         labels = clusters_map
     else:
         labels = label_propagation(sorted(feats), edges)
-        labels = _merge_tiny_clusters(labels, edges, min_size=3)
+        labels = split_oversized(labels, edges, max_size=PARAMS["max_cluster"],
+                                 features=feats, weights=idf(feats))
+        # min_size=2:两篇的小桶是有效分组(审计点赞的 LBM/PR-EOS 小袋),只折叠纯单篇
+        labels = _merge_tiny_clusters(labels, edges, min_size=2,
+                                      max_size=PARAMS["max_cluster"])
         pos = fr_layout(sorted(feats), edges, labels, iters=PARAMS["iters"], seed=PARAMS["seed"])
         pos = spread_clusters(pos, labels)
 
@@ -369,8 +377,12 @@ def arrivals(config: AppConfig) -> dict:
 
 
 def _merge_tiny_clusters(labels: dict[str, str], edges: list[tuple[str, str, float]],
-                         min_size: int = 3) -> dict[str, str]:
-    """<min_size 的区并入"与其成员边权和最大"的达标区;无任何边的并入 __misc__。确定性。"""
+                         min_size: int = 3, max_size: int | None = None) -> dict[str, str]:
+    """<min_size 的区并入"与其成员边权和最大"的达标区;无处可去的并入 __misc__。确定性。
+
+    max_size:不许把小区喂给会因此超限的区——否则 split_oversized 拆出的语义小桶
+    会被原样喂回巨型区(实测 118 拆 51 桶后被合并复原,等于白拆)。
+    """
     sizes: dict[str, int] = {}
     for c in labels.values():
         sizes[c] = sizes.get(c, 0) + 1
@@ -378,6 +390,7 @@ def _merge_tiny_clusters(labels: dict[str, str], edges: list[tuple[str, str, flo
     if not big:
         return labels  # 没有达标区(极小库):保持原样,不强造 misc
     out = dict(labels)
+    cur = dict(sizes)
     tiny = sorted(c for c, n in sizes.items() if n < min_size)
     for c in tiny:
         members = sorted(n for n, lab in labels.items() if lab == c)
@@ -388,10 +401,14 @@ def _merge_tiny_clusters(labels: dict[str, str], edges: list[tuple[str, str, flo
                 weight_to[lb] = weight_to.get(lb, 0.0) + w
             elif lb == c and la in big:
                 weight_to[la] = weight_to.get(la, 0.0) + w
+        if max_size:
+            weight_to = {k: v for k, v in weight_to.items()
+                         if cur.get(k, 0) + len(members) <= max_size}
         if weight_to:
             target = sorted(weight_to.items(), key=lambda t: (-t[1], t[0]))[0][0]
         else:
             target = "__misc__"
+        cur[target] = cur.get(target, 0) + len(members)
         for m in members:
             out[m] = target
     return out

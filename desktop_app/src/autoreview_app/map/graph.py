@@ -60,10 +60,24 @@ def idf(features: dict[str, set[str]]) -> dict[str, float]:
 
 def similarity_edges(
     features: dict[str, set[str]], weights: dict[str, float],
-    top_k: int = 10, min_score: float = 0.0,
+    top_k: int = 10, min_score: float = 0.0, df_cap_ratio: float = 1.0,
 ) -> list[tuple[str, str, float]]:
-    """共享要素 IDF 和;每篇保 top-k 邻居;返回去重无向边 (a<b, score)。"""
+    """共享要素 IDF 和;每篇保 top-k 邻居;返回去重无向边 (a<b, score)。
+
+    df_cap_ratio<1 时,出现于超过该比例论文的"烂大街"要素不参与连边——
+    内容审计(2026-06-10)证实:人人都用 MD/CH4 时 IDF 降权不够,巨型区由此而生。
+    """
     papers = sorted(features)
+    if df_cap_ratio < 1.0 and papers:
+        # 保底 5:小库(含测试夹具)不触发——剔"烂大街"只在规模化语料上才有意义
+        cap = max(5, int(len(papers) * df_cap_ratio))
+        df: dict[str, int] = {}
+        for elems in features.values():
+            for e in elems:
+                df[e] = df.get(e, 0) + 1
+        banned = {e for e, d in df.items() if d > cap}
+        if banned:
+            features = {p: elems - banned for p, elems in features.items()}
     # 倒排:要素 → 含它的论文,避免 O(n^2) 全比对
     inverted: dict[str, list[str]] = {}
     for pid in papers:
@@ -119,31 +133,119 @@ def label_propagation(
     return labels
 
 
+def split_oversized(
+    labels: dict[str, str], edges: list[tuple[str, str, float]],
+    max_size: int = 30, depth: int = 0,
+    features: dict[str, set[str]] | None = None,
+    weights: dict[str, float] | None = None,
+) -> dict[str, str]:
+    """巨型区递归再分:对超限区只用区内边重跑标签传播(剔掉区内的"烂大街"
+    粘合边——保留强于区内边权中位数的边),分不动就保持原样。确定性。
+    内容审计:topic 镜头 4 个巨型区(最大 61 篇)装走 58% 论文,必拆。"""
+    if depth >= 4:
+        return labels
+    sizes: dict[str, list[str]] = {}
+    for n, c in labels.items():
+        sizes.setdefault(c, []).append(n)
+    out = dict(labels)
+    changed = False
+    for cluster, members in sorted(sizes.items()):
+        if len(members) <= max_size:
+            continue
+        mset = set(members)
+        inner = [(a, b, w) for a, b, w in edges if a in mset and b in mset]
+        if not inner:
+            continue
+        ws = sorted(w for _, _, w in inner)
+        # 逐级抬高门槛(保留 ≥ 分位值的边)直到拆得动;全档拆不动则保持原样
+        sub = None
+        for q in (0.50, 0.75, 0.90, 0.97):
+            floor = ws[min(int(len(ws) * q), len(ws) - 1)]
+            strong = [(a, b, w) for a, b, w in inner if w >= floor]
+            if not strong:
+                continue
+            cand = label_propagation(sorted(members), strong)
+            if len({v for v in cand.values()}) > 1:
+                sub = cand
+                break
+        if sub is None and features:
+            # 密核:标签传播在稠密核上必然收敛单标签 → 退到语义分组——
+            # 每篇取其"最具区分度的中频要素"(df∈[4, N/3])作锚,按锚归桶。
+            n_total = len(features) or 1
+            df: dict[str, int] = {}
+            for elems in features.values():
+                for e in elems:
+                    df[e] = df.get(e, 0) + 1
+            band_hi = max(5, n_total // 3)
+
+            banned: set[str] = set()
+            for _attempt in range(6):
+                def _anchor(pid: str) -> str:
+                    cands = [
+                        ((weights or {}).get(e, 0.0), e)
+                        for e in features.get(pid, ())
+                        if 4 <= df.get(e, 0) <= band_hi and e not in banned
+                    ]
+                    return max(cands)[1] if cands else "__none__"
+
+                groups: dict[str, list[str]] = {}
+                for n in sorted(members):
+                    groups.setdefault(_anchor(n), []).append(n)
+                if len(groups) > 1:
+                    sub = {n: g for g, ms in groups.items() for n in ms}
+                    break
+                # 全员同锚(第二层密核):禁掉这个公共锚,用次选锚再分
+                only = next(iter(groups))
+                if only == "__none__":
+                    break
+                banned.add(only)
+        if sub is None:
+            continue
+        # 子区编号带父前缀,保证全局唯一且确定
+        for n in members:
+            out[n] = f"{cluster}>{sub[n]}"
+        changed = True
+    if changed:
+        return split_oversized(out, edges, max_size=max_size, depth=depth + 1,
+                               features=features, weights=weights)
+    return out
+
+
 def name_clusters(
     labels: dict[str, str], features: dict[str, set[str]],
     weights: dict[str, float], names: dict[str, str], top_n: int = 2,
 ) -> dict[str, str]:
-    """区名 = 区内最高频要素的 display_name(排除 idf 最低 30% 的"烂大街"项),取 1–2 个连「·」。"""
-    if weights:
-        sorted_w = sorted(weights.values())
-        floor = sorted_w[int(len(sorted_w) * 0.3)]
-    else:
-        floor = 0.0
-    filtered: dict[str, dict[str, int]] = {}
-    unfiltered: dict[str, dict[str, int]] = {}
+    """区名 = 区内"代表性"最高的要素:覆盖率(≥1/4 成员含它)× 区分度(对区外的提升倍数)。
+
+    旧版按区内频次取词,巨型杂区里高频垃圾词会上位(审计实证:"biological·building
+    materials" 命名了一个页岩运移区)。lift 评分让"区内常见、区外罕见"的词胜出;
+    weights(IDF)仅作平票次序参考。
+    """
+    n_total = len(features) or 1
+    df: dict[str, int] = {}
+    for elems in features.values():
+        for e in elems:
+            df[e] = df.get(e, 0) + 1
+    by_cluster: dict[str, dict[str, int]] = {}
+    sizes: dict[str, int] = {}
     for pid, label in labels.items():
+        sizes[label] = sizes.get(label, 0) + 1
         for e in features.get(pid, ()):
-            unfiltered.setdefault(label, {}).setdefault(e, 0)
-            unfiltered[label][e] += 1
-            if weights.get(e, 0.0) <= floor:  # 底部 30%(含分位线上的"烂大街")排除
-                continue
-            filtered.setdefault(label, {}).setdefault(e, 0)
-            filtered[label][e] += 1
+            by_cluster.setdefault(label, {}).setdefault(e, 0)
+            by_cluster[label][e] += 1
     out: dict[str, str] = {}
     for label in {v for v in labels.values()}:
-        counts = filtered.get(label) or unfiltered.get(label, {})  # 全被排掉 → 回退不过滤
-        top = sorted(counts.items(), key=lambda t: (-t[1], -weights.get(t[0], 0.0), t[0]))[:top_n]
-        out[label] = " · ".join(names.get(e, e.rsplit("/", 1)[-1]) for e, _ in top) or "未命名区"
+        counts = by_cluster.get(label, {})
+        size = sizes.get(label, 1)
+        scored: list[tuple[float, float, str]] = []
+        for e, cin in counts.items():
+            cov = cin / size
+            out_rate = (df.get(e, cin) - cin + 0.5) / max(n_total - size, 1)
+            lift = cov / max(out_rate, 1e-9)
+            scored.append((cov * min(lift, 50.0), cov, e))
+        good = [s for s in scored if s[1] >= 0.25]  # 1/4 成员都没有的词不配命名
+        pick = sorted(good or scored, key=lambda t: (-t[0], -weights.get(t[2], 0.0), t[2]))[:top_n]
+        out[label] = " · ".join(names.get(e, e.rsplit("/", 1)[-1]) for _, _, e in pick) or "未命名区"
     return out
 
 

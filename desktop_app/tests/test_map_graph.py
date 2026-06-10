@@ -55,14 +55,50 @@ def test_label_propagation_two_blobs_deterministic():
     assert l3["X"] == "X"
 
 
-def test_name_clusters_excludes_low_idf():
-    feats = {"A": {"e_rare", "e_common"}, "B": {"e_rare", "e_common"},
-             "C": {"e_common"}, "D": {"e_common"}, "E": {"e_common"}}
+def test_name_clusters_prefers_representative_over_universal():
+    # 双区:e_univ 全员都有(零区分度);e_a 是 A 区专属、e_b 是 B 区专属。
+    feats = {"A1": {"e_univ", "e_a"}, "A2": {"e_univ", "e_a"},
+             "B1": {"e_univ", "e_b"}, "B2": {"e_univ", "e_b"}}
     w = idf(feats)
-    labels = {p: "A" for p in feats}
-    names = {"e_rare": "Rare Thing", "e_common": "Common Thing"}
+    labels = {"A1": "a", "A2": "a", "B1": "b", "B2": "b"}
+    names = {"e_univ": "Universal", "e_a": "Alpha Thing", "e_b": "Beta Thing"}
     out = name_clusters(labels, feats, w, names, top_n=1)
-    assert out["A"] == "Rare Thing"                  # 烂大街被排除
+    assert out["a"] == "Alpha Thing"                 # lift 胜过全员高频词
+    assert out["b"] == "Beta Thing"
+
+
+def test_similarity_edges_df_cap_drops_universal_glue():
+    # 12 篇库:e_univ 出现 11/12(准烂大街,IDF>0 会黏合两团);cap=0.5 → 上限 6 → 剔除
+    feats = {f"A{i}": {"e_univ", "e_a"} for i in range(6)}
+    feats.update({f"B{i}": {"e_univ", "e_b"} for i in range(6)})
+    feats["B5"] = {"e_b"}  # e_univ df=11
+    w = idf(feats)
+    glued = similarity_edges(feats, w, df_cap_ratio=1.0)
+    assert any(a.startswith("A") and b.startswith("B") for a, b, _ in glued)
+    cut = similarity_edges(feats, w, df_cap_ratio=0.5)
+    assert all(not (a.startswith("A") and b.startswith("B")) for a, b, _ in cut)
+    # 团内的真实边仍在
+    assert any(a.startswith("A") and b.startswith("A") for a, b, _ in cut)
+
+
+def test_split_oversized_breaks_mega_cluster():
+    from autoreview_app.map.graph import split_oversized
+    # 一个 8 节点"巨型区":两团各自强连(w=3),团间一条弱边(w=0.5)粘着
+    nodes = [f"A{i}" for i in range(4)] + [f"B{i}" for i in range(4)]
+    edges = []
+    for grp in ("A", "B"):
+        ids = [n for n in nodes if n.startswith(grp)]
+        edges += [(ids[i], ids[j], 3.0) for i in range(4) for j in range(i + 1, 4)]
+    edges.append(("A0", "B0", 0.5))
+    labels = {n: "mega" for n in nodes}
+    out = split_oversized(labels, edges, max_size=5)
+    assert len({v for v in out.values()}) == 2       # 拆成两个子区
+    assert out["A0"] == out["A3"] and out["B0"] == out["B3"]
+    assert out["A0"] != out["B0"]
+    assert all(v.startswith("mega>") for v in out.values())  # 子区带父前缀
+    # 不超限的区原样不动
+    small = {n: "s" for n in nodes[:3]}
+    assert split_oversized(small, edges, max_size=5) == small
 
 
 def _write_card(lib: Path, pid: str, topic_ids):
