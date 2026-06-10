@@ -111,7 +111,8 @@ async function drawDrawer(drawer, facet, item) {
     for (const q of p.quotes) {
       drawer.append(
         el("div", { class: "quote-box", text: `"${q.quote}"` }),
-        el("a", { href: `#/papers/${p.paper_id}/decompose`, text: `原文段 ${q.reading_block_id} ↗` }),
+        el("a", { href: `#/papers/${p.paper_id}/decompose/${encodeURIComponent(q.reading_block_id)}`,
+          text: `原文段 ${q.reading_block_id} ↗`, title: "跳到拆解页并定位这一段原文" }),
       );
     }
   }

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from .config import AppConfig
 from . import settings as app_settings
 from .packaging.installer_manifest import consent_summary
-from .decomposition import assemble_decomposition
+from .decomposition import assemble_decomposition, read_block_context
 from .discovery.records import CitationRecord
 from .discovery.ris import parse_ris_text
 from .jobs import JobRegistry
@@ -385,6 +385,22 @@ def create_app(
         if "/" in paper_id or "\\" in paper_id or ".." in paper_id or not d.is_dir():
             raise HTTPException(status_code=404, detail="paper not found")
         return d
+
+    @app.get("/papers/{paper_id}/pdf")
+    def paper_pdf(paper_id: str):
+        # Wave-3 ③:source.pdf 每篇都在;inline 投递(不带 filename → 浏览器内置阅读器打开)
+        pdf = _paper_dir_or_404(paper_id) / "source.pdf"
+        if not pdf.is_file():
+            raise HTTPException(status_code=404, detail="pdf not found")
+        return FileResponse(pdf, media_type="application/pdf")
+
+    @app.get("/papers/{paper_id}/blocks/{block_id}")
+    def paper_block(paper_id: str, block_id: str) -> dict[str, Any]:
+        # Wave-3 ③:"原文段↗"锚点的数据面(段落 + 前后邻段)
+        ctx = read_block_context(_paper_dir_or_404(paper_id), block_id)
+        if ctx is None:
+            raise HTTPException(status_code=404, detail="reading block not found")
+        return ctx
 
     @app.get("/papers/{paper_id}/figures")
     def paper_figures(paper_id: str) -> dict[str, Any]:

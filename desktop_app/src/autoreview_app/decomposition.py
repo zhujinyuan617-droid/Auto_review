@@ -14,6 +14,7 @@ _RESULT_TYPES = {"result", "quantitative_result"}
 # elements.json facet sets
 _ELEMENT_ANALYSIS_FACETS = {"analysis", "simulation", "measurement", "characterization", "preparation"}
 _ELEMENT_RESULT_FACETS = {"finding"}
+_ELEMENT_CONDITION_FACETS = {"condition"}  # Wave-3 ③:条件要素上屏(温压/浓度等)
 
 
 def _read(paper_dir: Path, name: str) -> dict[str, Any]:
@@ -63,10 +64,12 @@ def _elements_views(
 
     analyses: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
+    conditions: list[dict[str, Any]] = []
     counter = 0
     for occ in used:
         facet = occ.get("facet", "")
-        if facet in _ELEMENT_ANALYSIS_FACETS or facet in _ELEMENT_RESULT_FACETS:
+        if (facet in _ELEMENT_ANALYSIS_FACETS or facet in _ELEMENT_RESULT_FACETS
+                or facet in _ELEMENT_CONDITION_FACETS):
             atom = {
                 "evidence_atom_id": f"EL-{counter:04d}",
                 "atom_type": facet,
@@ -75,7 +78,10 @@ def _elements_views(
                 "reading_block_id": occ.get("reading_block_id"),
                 "confidence": "",
             }
-            if facet in _ELEMENT_ANALYSIS_FACETS:
+            if facet in _ELEMENT_CONDITION_FACETS:
+                atom["values"] = [str(v.get("raw", "")) for v in occ.get("values") or [] if v.get("raw")]
+                conditions.append(atom)
+            elif facet in _ELEMENT_ANALYSIS_FACETS:
                 analyses.append(atom)
             else:
                 results.append(atom)
@@ -86,7 +92,7 @@ def _elements_views(
     if not analyses and not results:
         return None
 
-    return analyses, results
+    return analyses, results, conditions
 
 
 def assemble_decomposition(paper_dir: Path) -> dict[str, Any]:
@@ -110,7 +116,7 @@ def assemble_decomposition(paper_dir: Path) -> dict[str, Any]:
 
     if el_result is not None:
         # elements path
-        analyses, results = el_result
+        analyses, results, conditions = el_result
         source = "elements"
 
         # result_relations: prefer existing paper_syntheses; else derive from card main_findings
@@ -141,6 +147,7 @@ def assemble_decomposition(paper_dir: Path) -> dict[str, Any]:
         atoms = atoms_doc.get("evidence_atoms") or []
         analyses = [_atom_view(a) for a in atoms if a.get("atom_type") in _ANALYSIS_TYPES]
         results = [_atom_view(a) for a in atoms if a.get("atom_type") in _RESULT_TYPES]
+        conditions = []  # 旧原子链没有条件类,诚实给空
         relations = [
             {
                 "synthesis_id": syn.get("synthesis_id"),
@@ -166,6 +173,36 @@ def assemble_decomposition(paper_dir: Path) -> dict[str, Any]:
         "glossary": glossary_doc.get("glossary") or [],
         "analyses": analyses,
         "results": results,
+        "conditions": conditions,
         "result_relations": relations,
         "source": source,
+    }
+
+
+def read_block_context(paper_dir: Path, block_id: str) -> dict[str, Any] | None:
+    """按 reading_block_id 取原文段 + 前后邻段(Wave-3 ③:"原文段↗"锚点的数据面)。
+
+    返回 None = 论文无 reading_blocks 或找不到该段(调用方回 404)。
+    """
+    doc = _read(paper_dir, "reading_blocks.json")
+    blocks = doc.get("reading_blocks") or []
+    idx = next((i for i, b in enumerate(blocks)
+                if b.get("reading_block_id") == block_id), None)
+    if idx is None:
+        return None
+
+    def view(b: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "reading_block_id": b.get("reading_block_id"),
+            "text": b.get("text", ""),
+            "section_title": b.get("section_title", ""),
+            "page_start": b.get("page_start"),
+            "page_end": b.get("page_end"),
+        }
+
+    return {
+        "paper_id": doc.get("paper_id") or paper_dir.name,
+        "block": view(blocks[idx]),
+        "prev": view(blocks[idx - 1]) if idx > 0 else None,
+        "next": view(blocks[idx + 1]) if idx + 1 < len(blocks) else None,
     }

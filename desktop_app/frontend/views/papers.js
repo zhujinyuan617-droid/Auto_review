@@ -2,13 +2,22 @@ import { getJSON } from "/assets/api.js";
 import { el, clear, loading, errorState } from "/assets/ui.js";
 
 // render() dispatches the three Papers sub-routes:
-//   []                -> list
-//   [id]              -> detail
-//   [id, "decompose"] -> decomposition
+//   []                          -> list
+//   [id]                        -> detail
+//   [id, "decompose"]           -> decomposition
+//   [id, "decompose", blockId]  -> decomposition + 原文段定位(检索/统计的"原文段↗"落点)
 export async function render(view, params) {
   if (params.length === 0) return renderList(view);
-  if (params.length >= 2 && params[1] === "decompose") return renderDecomposition(view, params[0]);
+  if (params.length >= 2 && params[1] === "decompose") {
+    return renderDecomposition(view, params[0], params[2] ? decodeURIComponent(params[2]) : null);
+  }
   return renderDetail(view, params[0]);
+}
+
+function pdfButton(id) {
+  const btn = el("button", { text: "打开 PDF", title: "在新窗口打开原文 PDF" });
+  btn.addEventListener("click", () => window.open("/papers/" + encodeURIComponent(id) + "/pdf", "_blank"));
+  return btn;
 }
 
 async function renderList(view) {
@@ -91,7 +100,7 @@ async function renderDetail(view, id) {
 
   const btn = el("button", { text: "查看拆解 →" });
   btn.addEventListener("click", () => { location.hash = "#/papers/" + id + "/decompose"; });
-  view.append(el("div", { class: "section" }, [btn]));
+  view.append(el("div", { class: "section", style: "display:flex;gap:8px;" }, [btn, pdfButton(id)]));
 
   // 图表画廊(Wave-3 ②:图表墙撤屏后的完整画廊新家);拉不到图不挡详情
   try {
@@ -125,35 +134,101 @@ function blockList(title, blocks) {
   return sec;
 }
 
-function atomList(title, atoms) {
+// "原文段↗"锚点兑现(Wave-3 ③):点开 = 取 GET /papers/{id}/blocks/{rb},
+// 就地展开该段全文(章节名 + 页码 + 下一段预览),再点收起。
+function blockAnchor(paperId, rbId) {
+  if (!rbId) return null;
+  const wrap = el("span", { class: "block-anchor" });
+  const a = el("a", { href: "javascript:void 0", text: `原文段 ${rbId} ↗` });
+  const slot = el("div", { class: "block-ctx" });
+  slot.hidden = true;
+  let loaded = false;
+  a.addEventListener("click", async () => {
+    slot.hidden = !slot.hidden;
+    if (loaded || slot.hidden) return;
+    loaded = true;
+    slot.append(el("p", { class: "muted", text: "加载原文段…" }));
+    try {
+      const d = await getJSON(`/papers/${encodeURIComponent(paperId)}/blocks/${encodeURIComponent(rbId)}`);
+      clear(slot);
+      slot.append(...blockContextNodes(d));
+    } catch (err) {
+      clear(slot);
+      slot.append(el("p", { class: "error", text: err.code === 404
+        ? "原文段不存在(可能来自旧版索引)" : "原文段加载失败:" + err.message }));
+    }
+  });
+  wrap.append(a, slot);
+  return wrap;
+}
+
+function blockContextNodes(d) {
+  const b = d.block || {};
+  const out = [
+    el("div", { class: "pmeta", text: [b.section_title || "原文",
+      b.page_start != null ? `第 ${b.page_start} 页` : null].filter(Boolean).join(" · ") }),
+    el("p", { text: b.text || "(空段)" }),
+  ];
+  if (d.next && d.next.text) {
+    out.push(el("p", { class: "muted", text: "下一段:" + String(d.next.text).slice(0, 140) + "…" }));
+  }
+  return out;
+}
+
+function atomList(title, atoms, paperId) {
   const sec = el("div", { class: "section" }, [el("h3", { text: `${title} (${atoms.length})` })]);
   if (atoms.length === 0) { sec.append(el("p", { class: "muted", text: "无" })); return sec; }
   for (const a of atoms) {
+    const head = a.values && a.values.length
+      ? `${a.minimal_claim || ""} = ${a.values.join(" / ")}`
+      : (a.minimal_claim || "");
     sec.append(
       el("div", { class: "atom" }, [
-        el("div", { text: a.minimal_claim || "" }),
+        el("div", { text: head }),
         a.quote ? el("div", { class: "quote", text: "“" + a.quote + "”" }) : null,
+        blockAnchor(paperId, a.reading_block_id),
       ])
     );
   }
   return sec;
 }
 
-async function renderDecomposition(view, id) {
+async function renderDecomposition(view, id, focusBlockId) {
   loading(view);
   let d;
   try {
     d = await getJSON("/papers/" + encodeURIComponent(id) + "/decomposition");
   } catch (err) {
     if (err.code === 404) return errorState(view, "未找到论文 " + id, null);
-    return errorState(view, err.message, () => renderDecomposition(view, id));
+    return errorState(view, err.message, () => renderDecomposition(view, id, focusBlockId));
   }
   const c = d.card || {};
   clear(view);
+  // 素材来源诚实标注:elements=新链(逐字锚定要素);legacy=旧原子链
+  const srcBadge = d.source
+    ? el("span", {
+        class: "tag",
+        title: d.source === "elements" ? "素材来自要素抽取链(逐字原文锚定)" : "素材来自旧版原子链(待要素链补抽后自动切换)",
+        text: d.source === "elements" ? "素材:要素链" : "素材:旧链 legacy",
+      })
+    : null;
   view.append(
     el("a", { class: "back", href: "#/papers/" + id }, "← 返回详情"),
-    el("h2", { text: (c.title || id) + " · 拆解" })
+    el("h2", { text: (c.title || id) + " · 拆解" }),
+    el("div", { class: "section", style: "display:flex;gap:8px;align-items:center;" }, [pdfButton(id), srcBadge])
   );
+
+  // 深链定位:从检索/统计的"原文段↗"跳来时,顶端直接展开该原文段
+  if (focusBlockId) {
+    const banner = el("div", { class: "card-box block-focus" }, [
+      el("h3", { style: "margin-top:0;", text: `原文段定位:${focusBlockId}` }),
+    ]);
+    view.append(banner);
+    getJSON(`/papers/${encodeURIComponent(id)}/blocks/${encodeURIComponent(focusBlockId)}`)
+      .then((bd) => banner.append(...blockContextNodes(bd)))
+      .catch((err) => banner.append(el("p", { class: "error", text: err.code === 404
+        ? "该原文段不存在(可能来自旧版索引)。" : "原文段加载失败:" + err.message })));
+  }
 
   const abstract = blockList("摘要", d.abstract_blocks);
   if (abstract) view.append(abstract);
@@ -171,8 +246,11 @@ async function renderDecomposition(view, id) {
     view.append(sec);
   }
 
-  view.append(atomList("用了哪些分析", d.analyses || []));
-  view.append(atomList("得到哪些结果", d.results || []));
+  view.append(atomList("用了哪些分析", d.analyses || [], id));
+  if ((d.conditions || []).length) {
+    view.append(atomList("在什么条件下(温压/浓度等)", d.conditions, id));
+  }
+  view.append(atomList("得到哪些结果", d.results || [], id));
 
   const rel = d.result_relations || [];
   const relSec = el("div", { class: "section" }, [el("h3", { text: `结果间关联 (${rel.length})` })]);

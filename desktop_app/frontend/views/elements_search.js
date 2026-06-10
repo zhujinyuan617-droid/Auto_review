@@ -222,7 +222,8 @@ export async function render(view, params) {
       detail.append(
         el("div", {}, [el("span", { class: "tag", text: m.display_name }), ` ${m.surface}`]),
         el("div", { class: "quote-box", text: `"${m.quote}"` }),
-        el("a", { href: `#/papers/${p.paper_id}/decompose`, text: `原文段 ${m.reading_block_id} ↗` }),
+        el("a", { href: `#/papers/${p.paper_id}/decompose/${encodeURIComponent(m.reading_block_id)}`,
+          text: `原文段 ${m.reading_block_id} ↗`, title: "跳到拆解页并定位这一段原文" }),
       );
     }
   }
