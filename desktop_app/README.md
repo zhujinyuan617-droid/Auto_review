@@ -31,6 +31,13 @@ executed yet (see docs/superpowers/specs/2026-06-09-element-index-design.md §9)
 wiring discovery search/download to live APIs + a real writing-brief builder + AI
 angle ranking; the Docling / Sci-Hub / screenshot plugins.
 
+Pipeline regeneration (SP-Regen) implemented on feature/pipeline-regen: default
+chain = 4 AI calls/paper (legacy atoms/syntheses behind --include-legacy-stages),
+finding facet + backfill tooling, slim card v3 with element-derived tags,
+vocabulary derived from the registry (AI normalization retired), authorship via
+OpenAlex + institution registry, parallel extraction. Real-library backfill
+batches NOT yet executed (see ISSUES I18 ordering).
+
 ## What it does (HTTP API surface)
 
 | Area | Endpoints |

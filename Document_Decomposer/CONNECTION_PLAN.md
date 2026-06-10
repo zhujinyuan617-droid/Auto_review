@@ -97,8 +97,10 @@ AI 不再把原文重写成"事实"。
   语言/正文 CJK 延后 **3 篇**(`S56`, `S85`, `S251`);
   Docling 无法转换 **6 篇**(`S290`, `S293`, `S294`, `S352`, `S353`, `S354`)。
 - 坏 PDF 默认只标记不抢救,列表在 `config/docling_unresolved.json`。
-- 下一步应在 **255 篇核心集**上重建连接层:
-  `build_vocabulary` → `build_candidate_edges` → `ai_build_edges` → `build_concept_index` → `build_graph_html`。
+- 下一步应在 **255 篇核心集**上按顺序铁律重建连接层(见 ISSUES I18):
+  `card_tags 回填` → `import_topic_vocabulary` → `resolve_topics_bulk` → `derive_vocabulary`(纯脚本,词表 AI 归一已退役)
+  → `build_candidate_edges` → `ai_build_edges` → `build_concept_index` → `build_graph_html`。
+  **乱序会让候选边召回静默塌缩(新旧词汇错配)——见 ISSUES I18 顺序铁律。**
 - 注意:扩容后**旧 15 条矛盾/角度/初稿都是旧网产物**(可重生),需在新网上重跑。
 
 **B. 写作指南(蒸馏式,接地)** —— 解决"出稿按科学写作指南"且无用户语料的问题
