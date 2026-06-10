@@ -8,10 +8,10 @@ a local FastAPI service shown in a pywebview window.
 The engine (`../Document_Decomposer/`) is reused **as-is** via an injected AI
 client and a `sys.path` bridge (`engine_bridge.py`); no engine code is modified.
 
-## Status (2026-06-09)
+## Status (2026-06-10)
 
 Backend milestones **M1–M7 implemented and merged to `main`**. The desktop test
-suite is **154 tests, all passing offline** — verified by
+suite is **271 tests, all passing offline** (engine suite: 164) — verified by
 `.venv\Scripts\python -m pytest -q` from `desktop_app/`, with the AI client,
 network, and OS keychain all replaced by fakes in tests (no real DeepSeek call,
 no network, no real credential written). Scope: this is the `desktop_app` suite
@@ -47,14 +47,25 @@ batches all executed 2026-06-10 (numbers in ISSUES I18; quality by sampling audi
   bootstrap tail and `backfill_findings.py` default to it (`--match-mode stream`
   keeps the legacy per-paper path). Real-library acceptance: **3.2 min wall,
   154 calls, 0 dangling** — see `../docs/superpowers/archive/2026-06-10-speed-sp-design.md` §6.
-- **SP-Map (feature/map-home)**: knowledge-map home screen — 5 switchable lenses
-  (topic/method/material/time/institution), deterministic IDF+label-propagation
-  clustering with cached FR layout (incremental placement for new papers),
-  arrivals card, ego closeup, reading routes, figure wall, linked facet counts
-  in the search screen (`/elements/refine`), nav regrouped to 找/读/写/设置.
-  All map math is mechanical (zero AI). Real-library smoke: 261 nodes,
-  topic lens 21 clusters, ~1s compute then cached. Browser-side interactions
-  NOT yet manually verified (checklist in the SP-Map plan).
+- **SP-Map (feature/map-home)**: knowledge-map home screen — switchable lenses,
+  deterministic IDF+label-propagation clustering, arrivals card, ego closeup,
+  reading routes, linked facet counts in the search screen (`/elements/refine`),
+  nav regrouped to 找/读/写/设置. All map math is mechanical (zero AI; the only
+  AI on the map is the explicit per-region description call).
+- **Wave-3 (2026-06-10, same branch)**: layout switched to deterministic
+  **radial** (largest region center, concentric rings, in-region year rings
+  old→new, unbuilt papers pinned outermost with one-click bootstrap); **time
+  lens retired** (first-seen moved into region panels); stats + figure-wall
+  screens retired from nav (region element profiles via `/map/region-elements`,
+  figures fold into paper card top-3 + detail gallery; old routes kept);
+  decomposition page gained PDF serving, real source-paragraph anchors
+  (`/papers/{id}/blocks/{rb}`), condition elements, source badge; institution
+  lens regrouped by **continent** (one-time OpenAlex country enrichment:
+  240/243 matched via name search — top-hit matching, unaudited; see
+  `scripts/enrich_institution_countries.py`); search screen: title-first rows,
+  cooccurrence fold-in, send-hits-to-writing. Real-library smoke over HTTP:
+  topic 25 clusters / institution 亚洲 191 · 北美洲 47 / PDF + block + region
+  endpoints 200. Browser-side interactions NOT yet manually clicked.
 
 ## What it does (HTTP API surface)
 
@@ -62,14 +73,14 @@ batches all executed 2026-06-10 (numbers in ISSUES I18; quality by sampling audi
 |---|---|
 | Health / library / UI | `GET /health`, `GET /library`, `GET /` |
 | Import (PDF → card) | `POST /papers/import`, `GET /jobs/{id}` |
-| Browse | `GET /library/papers`, `GET /papers/{id}`, `GET /network` |
+| Browse | `GET /library/papers`, `GET /papers/{id}`, `GET /papers/{id}/pdf`, `GET /papers/{id}/blocks/{rb}`, `GET /network` |
 | Research groups | `GET /groups` |
 | Single-paper view | `GET /papers/{id}/decomposition` |
 | Discovery | `POST /discovery/import-ris`, `POST /discovery/search` |
 | Writing | `POST /writing/check`, `POST /writing/draft`, `GET /writing/angles` |
 | Elements | `GET /elements/overview`, `GET /elements/stats`, `GET /elements`, `GET /elements/{facet}/{slug}` (+`/cooccurrence`), `POST /elements/query`, `PUT /elements/{facet}/{slug}`, `POST /elements/bootstrap`, `GET /elements/coverage`, `GET /papers/{id}/elements` |
 | Settings | `GET`/`POST`/`DELETE /settings/apikey`, `GET`/`PUT /settings/parallel`, `GET /settings/setup-manifest` |
-| Map (home) | `GET /map?lens=`, `POST /map/relayout`, `GET /map/arrivals`, `GET /map/route`, `POST /elements/refine`, `GET /papers/{id}/figures` (+`/{name}`) |
+| Map (home) | `GET /map?lens=` (lenses: topic/method/material/institution; `time` retired but path kept), `POST /map/relayout`, `GET /map/arrivals`, `GET /map/route`, `GET /map/region-elements`, `GET /map/institution-elements`, `GET /map/neighbors`, `GET /map/first-seen`, `PUT /map/cluster-label`, `POST /map/describe`, `POST /elements/refine`, `GET /papers/{id}/figures` (+`/{name}`) |
 
 ## Module map (`src/autoreview_app/`)
 
