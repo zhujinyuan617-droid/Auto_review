@@ -8,19 +8,32 @@
   </head>
   <body>
     <header id="topbar">
-      <h1>Auto Review</h1>
+      <h1><a href="#/map" title="回到知识地图">Auto Review</a></h1>
       <span class="tagline">论文 · 拆解 · 重组 · 出稿</span>
     </header>
     <div id="layout">
+      <!-- 左轨四组(SP-Map §5):找 / 读 / 写 / 设置;地图=首页(点 logo 回);
+           「关系网」从导航撤下,#/network 路由保留(书签可达,功能并入地图特写)。 -->
       <nav id="nav">
-        <a href="#/papers">藏书</a>
-        <a href="#/import">导入</a>
-        <a href="#/elements">要素检索</a>
-        <a href="#/stats">全库统计</a>
-        <a href="#/network">关系网</a>
-        <a href="#/groups">课题组</a>
-        <a href="#/writing">写作</a>
-        <a href="#/settings">设置</a>
+        <div class="nav-group">
+          <span class="nav-group-label">找</span>
+          <a href="#/elements">要素检索</a>
+          <a href="#/stats">全库统计</a>
+        </div>
+        <div class="nav-group">
+          <span class="nav-group-label">读</span>
+          <a href="#/papers">论文列表</a>
+          <a href="#/import">导入</a>
+        </div>
+        <div class="nav-group">
+          <span class="nav-group-label">写</span>
+          <a href="#/writing">写作</a>
+        </div>
+        <div class="nav-group">
+          <span class="nav-group-label">设置</span>
+          <a href="#/settings">设置</a>
+          <a href="#/groups">课题组</a>
+        </div>
       </nav>
       <main id="view">加载中…</main>
     </div>

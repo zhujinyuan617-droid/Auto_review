@@ -1,7 +1,9 @@
 import { placeholder } from "/assets/ui.js";
 
-// Routes whose module exists. Later batches add import/network/groups/writing/settings.
+// Routes whose module exists. map 是首页(无 hash / #/ 时进入);network 不在导航上
+// 但路由保留(书签兼容,SP-Map §5)。
 const ROUTES = {
+  map: () => import("/assets/views/map.js"),
   papers: () => import("/assets/views/papers.js"),
   import: () => import("/assets/views/import.js"),
   network: () => import("/assets/views/network.js"),
@@ -13,9 +15,9 @@ const ROUTES = {
 };
 
 function parseHash() {
-  const raw = (location.hash || "#/papers").replace(/^#\//, "");
+  const raw = (location.hash || "#/map").replace(/^#\//, "");
   const parts = raw.split("/").filter(Boolean);
-  return { name: parts[0] || "papers", params: parts.slice(1) };
+  return { name: parts[0] || "map", params: parts.slice(1) };
 }
 
 function highlightNav(name) {
@@ -28,6 +30,7 @@ async function route() {
   const view = document.getElementById("view");
   const { name, params } = parseHash();
   highlightNav(name);
+  view.className = ""; // 视图级布局类(如地图的 map-full)不得跨路由残留
   const loader = ROUTES[name];
   if (!loader) {            // nav target not built yet
     placeholder(view);
