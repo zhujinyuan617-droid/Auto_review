@@ -1,4 +1,4 @@
-import { getJSON, postJSON } from "/assets/api.js";
+import { getJSON, postJSON, pollJob } from "/assets/api.js";
 import { el, clear, errorState } from "/assets/ui.js";
 
 export async function render(view) {
@@ -9,7 +9,6 @@ export async function render(view) {
   view.append(risSection());
 }
 
-function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 function pdfSection() {
   const box = el("div", { class: "card-box section" }, [el("h3", { text: "导入 PDF" })]);
@@ -33,7 +32,7 @@ function pdfSection() {
       status.append(el("div", { class: "atom" }, [el("div", {}, [el("strong", { text: name })]), inner]));
       try {
         const { job_id } = await postJSON("/papers/import", { pdf_path: path, batch_id: batchId });
-        return await pollJob(job_id, inner);
+        return await pollImportJob(job_id, inner);
       } catch (err) {
         errorState(inner, err.message, null);
         return "failed";
@@ -41,11 +40,12 @@ function pdfSection() {
     }));
     btn.disabled = false;
     const ok = finals.filter((s) => s === "succeeded").length;
-    if (ok > 0) { // 全部终态且至少 1 篇成功 → 跳地图看着陆
+    const detached = finals.includes("detached"); // 用户已离屏:不跳转不报错,着陆卡兜底
+    if (ok > 0 && location.hash.startsWith("#/import")) {
       try { sessionStorage.setItem("arriveAfterImport", "1"); } catch (err) { /* 私隐模式:跳过自动着陆 */ }
       status.append(el("p", {}, [el("strong", { text: `本批 ${ok}/${paths.length} 篇已完成,正在打开知识地图…` })]));
-      setTimeout(() => { location.hash = "#/map"; }, 1000);
-    } else {
+      setTimeout(() => { if (location.hash.startsWith("#/import")) location.hash = "#/map"; }, 1000);
+    } else if (!detached && ok === 0) {
       status.append(el("p", { class: "error", text: "本批没有成功的导入,未跳转地图。" }));
     }
   });
@@ -53,24 +53,26 @@ function pdfSection() {
   return box;
 }
 
-// 轮询到终态;返回 "succeeded" | "failed" | "timeout"(调用方据此决定是否跳地图)。
-async function pollJob(jobId, status) {
-  for (let i = 0; i < 600; i++) {
-    const job = await getJSON("/jobs/" + jobId);
-    clear(status);
-    status.append(el("p", { class: "muted", text: (job.progress || []).join(" → ") || "运行中…" }));
-    if (job.status === "succeeded") {
-      status.append(el("p", {}, ["完成,论文号 ", el("strong", { text: String(job.result) }), " ",
-        el("a", { href: "#/papers/" + job.result }, "查看")]));
-      return "succeeded";
-    }
-    if (job.status === "failed") {
-      status.append(el("p", { class: "error", text: "失败:" + (job.error || "未知错误") }));
-      return "failed";
-    }
-    await sleep(1000);
+// 轮询到终态(共享 pollJob:离开导入屏即静默停,任务在服务端继续,地图着陆卡兜底)。
+async function pollImportJob(jobId, status) {
+  const job = await pollJob(jobId, {
+    hashPrefix: "#/import", maxTicks: 600,
+    onTick: (j) => {
+      clear(status);
+      status.append(el("p", { class: "muted", text: (j.progress || []).join(" → ") || "运行中…" }));
+    },
+  });
+  if (job.status === "succeeded") {
+    status.append(el("p", {}, ["完成,论文号 ", el("strong", { text: String(job.result) }), " ",
+      el("a", { href: "#/papers/" + job.result }, "查看")]));
+    return "succeeded";
   }
-  status.append(el("p", { class: "error", text: "超时,仍在运行 —— 稍后到藏书查看。" }));
+  if (job.status === "failed") {
+    status.append(el("p", { class: "error", text: "失败:" + (job.error || "未知错误") }));
+    return "failed";
+  }
+  if (job.status === "detached") return "detached";
+  status.append(el("p", { class: "error", text: "超时,仍在运行 —— 稍后到藏书查看(job " + jobId + ")。" }));
   return "timeout";
 }
 

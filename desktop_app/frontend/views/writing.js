@@ -1,7 +1,5 @@
-import { getJSON, postJSON } from "/assets/api.js";
+import { getJSON, postJSON, pollJob } from "/assets/api.js";
 import { el, clear, loading, errorState } from "/assets/ui.js";
-
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 export async function render(view) {
   clear(view);
@@ -77,19 +75,21 @@ function draftSection() {
     btn.disabled = true; status.append(el("p", { class: "muted", text: "提交中…" }));
     try {
       const { job_id } = await postJSON("/writing/draft", { topic: topic.value.trim(), paper_ids, section_count: 1, word_target: 300 });
-      for (let i = 0; i < 1800; i++) {
-        const job = await getJSON("/jobs/" + job_id);
-        clear(status); status.append(el("p", { class: "muted", text: (job.progress || []).slice(-1)[0] || "运行中…" }));
-        if (job.status === "succeeded") {
-          const r = job.result || {};
-          status.append(el("p", { class: "muted", text: `状态:${r.status || ""} · 轮数:${r.rounds || 0}` }));
-          status.append(el("pre", { class: "card-box", text: r.draft_text || "(空)" }));
-          return;
-        }
-        if (job.status === "failed") { status.append(el("p", { class: "error", text: "失败:" + (job.error || "") })); return; }
-        await sleep(1000);
+      const job = await pollJob(job_id, {
+        hashPrefix: "#/writing",
+        onTick: (j) => {
+          clear(status);
+          status.append(el("p", { class: "muted", text: (j.progress || []).slice(-1)[0] || "运行中…" }));
+        },
+      });
+      if (job.status === "succeeded") {
+        const r = job.result || {};
+        status.append(el("p", { class: "muted", text: `状态:${r.status || ""} · 轮数:${r.rounds || 0}` }));
+        status.append(el("pre", { class: "card-box", text: r.draft_text || "(空)" }));
+        return;
       }
-      status.append(el("p", { class: "error", text: "超时" }));
+      if (job.status === "failed") { status.append(el("p", { class: "error", text: "失败:" + (job.error || "") })); return; }
+      if (job.status === "timeout") status.append(el("p", { class: "error", text: "超时(任务仍在后台,job " + job_id + ")" }));
     } catch (err) { errorState(status, err.message, null); }
     finally { btn.disabled = false; }
   });

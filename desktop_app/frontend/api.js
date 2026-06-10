@@ -38,6 +38,21 @@ export async function putJSON(path, body) {
   return res.json();
 }
 
+// 统一任务轮询:用户已离开 hashPrefix 屏即静默停止(返回 {status:"detached"}),
+// 任务本身在服务端继续——绝不在别的屏上"完成后劫持/重画"。P0 串台修复的公共件。
+export async function pollJob(jobId, { hashPrefix, onTick, intervalMs = 1000, maxTicks = 1800 } = {}) {
+  for (let i = 0; i < maxTicks; i++) {
+    if (hashPrefix && !location.hash.startsWith(hashPrefix)) {
+      return { status: "detached", job_id: jobId };
+    }
+    const job = await getJSON("/jobs/" + jobId);
+    if (onTick) onTick(job, i);
+    if (job.status !== "running") return job;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return { status: "timeout", job_id: jobId };
+}
+
 export async function delJSON(path) {
   const res = await fetch(path, { method: "DELETE" });
   if (!res.ok) {

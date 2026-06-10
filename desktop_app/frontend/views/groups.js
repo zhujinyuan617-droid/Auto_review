@@ -1,7 +1,5 @@
-import { getJSON, postJSON } from "/assets/api.js";
+import { getJSON, postJSON, pollJob } from "/assets/api.js";
 import { el, clear, loading, errorState } from "/assets/ui.js";
-
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 export async function render(view) {
   loading(view);
@@ -19,13 +17,17 @@ export async function render(view) {
       btn.disabled = true; clear(status); status.append(el("p", { class: "muted", text: "提交中…" }));
       try {
         const { job_id } = await postJSON("/groups/build", {});
-        for (let i = 0; i < 1200; i++) {
-          const job = await getJSON("/jobs/" + job_id);
-          clear(status); status.append(el("p", { class: "muted", text: (job.progress || []).slice(-1)[0] || "运行中…" }));
-          if (job.status === "succeeded") { render(view); return; }
-          if (job.status === "failed") { status.append(el("p", { class: "error", text: "失败:" + (job.error || "") })); break; }
-          await sleep(1000);
-        }
+        const job = await pollJob(job_id, {
+          hashPrefix: "#/groups", maxTicks: 1200,
+          onTick: (j) => {
+            clear(status);
+            status.append(el("p", { class: "muted", text: (j.progress || []).slice(-1)[0] || "运行中…" }));
+          },
+        });
+        // 仍在本屏才允许重画;离屏(detached)则静默——任务在服务端继续
+        if (job.status === "succeeded" && location.hash.startsWith("#/groups")) { render(view); return; }
+        if (job.status === "failed") status.append(el("p", { class: "error", text: "失败:" + (job.error || "") }));
+        if (job.status === "timeout") status.append(el("p", { class: "error", text: "超时(任务仍在后台,job " + job_id + ")" }));
       } catch (err) { errorState(status, err.message, null); }
       finally { btn.disabled = false; }
     });

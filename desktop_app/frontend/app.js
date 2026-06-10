@@ -27,7 +27,10 @@ function highlightNav(name) {
   });
 }
 
+let routeSeq = 0; // 防串台:慢请求的旧视图渲染返回时,若用户已切屏则丢弃结果
+
 async function route() {
+  const seq = ++routeSeq;
   const view = document.getElementById("view");
   const { name, params } = parseHash();
   highlightNav(name);
@@ -40,8 +43,10 @@ async function route() {
   view.textContent = "加载中…";
   try {
     const mod = await loader();
+    if (seq !== routeSeq) return; // 已切去别屏,本次渲染作废
     await mod.render(view, params);
   } catch (err) {
+    if (seq !== routeSeq) return;
     view.textContent = "页面加载失败:" + err.message;
   }
 }

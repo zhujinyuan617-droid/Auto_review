@@ -6,6 +6,7 @@ only wires paths/config and composes the per-paper and bootstrap flows.
 from __future__ import annotations
 
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
@@ -34,6 +35,11 @@ from docdecomp.io_utils import write_json  # noqa: E402
 from ..config import AppConfig  # noqa: E402
 
 Report = Callable[[str], None]
+
+# 注册表"读改存"必须互斥:并发导入各拿一份磁盘副本再各自整写,后存者会覆盖
+# 前存者新建的条目(last-writer-wins),elements.json 留悬空 canonical_id。
+# jobs 每个导入一线程、无并发上限,batch 多选导入就是并发场景——进程级锁兜底。
+_REGISTRY_WRITE_LOCK = threading.Lock()
 
 
 def engine_root() -> Path:
@@ -73,12 +79,13 @@ def run_elements_for_paper(paper_dir: Path, client: Any, config: AppConfig,
     seeds = load_seeds(seeds_path())
     report("extracting elements")
     result = run_element_extraction(paper_dir, client, seeds)
-    registry = ensure_registry(config)
     report("matching elements against registry")
-    match_paper_elements(paper_dir, registry, client, config.elements_log_path)
-    save_registry(config.elements_registry_path, registry)
-    report("updating elements index")
-    build_index(config.library_dir, registry, config.elements_db)
+    with _REGISTRY_WRITE_LOCK:  # 读改存原子化(见锁定义处注释)
+        registry = ensure_registry(config)
+        match_paper_elements(paper_dir, registry, client, config.elements_log_path)
+        save_registry(config.elements_registry_path, registry)
+        report("updating elements index")
+        build_index(config.library_dir, registry, config.elements_db)
     card_path = paper_dir / "literature_card.json"
     if card_path.exists():
         report("deriving card tags")
@@ -149,17 +156,18 @@ def run_bootstrap(config: AppConfig, client: Any, report: Report = lambda m: Non
     config.elements_data_dir.mkdir(parents=True, exist_ok=True)
     if config.elements_registry_path.exists():
         report("registry exists: bulk-matching all papers (no re-consolidation)")
-        registry = load_registry(config.elements_registry_path)
-        # 判同并行(只读提案);落账在 bulk 内部串行 —— 单写入者不变,勿再并行化落账
-        papers_with_elements = [p for p in papers if (p / "elements.json").exists()]
-        bstats = bulk_match_elements(
-            papers_with_elements, registry, client, config.elements_log_path,
-            parallel=parallel)
-        report(
-            f"bulk match: groups={bstats['groups_total']} ai_calls={bstats['ai_calls']} "
-            f"resolved_ai={bstats['resolved_ai']} created={bstats['created']} "
-            f"failed_chunks={bstats['judge_failed_chunks']}")
-        save_registry(config.elements_registry_path, registry)
+        with _REGISTRY_WRITE_LOCK:  # 与单篇导入互斥,防双写注册表
+            registry = load_registry(config.elements_registry_path)
+            # 判同并行(只读提案);落账在 bulk 内部串行 —— 单写入者不变,勿再并行化落账
+            papers_with_elements = [p for p in papers if (p / "elements.json").exists()]
+            bstats = bulk_match_elements(
+                papers_with_elements, registry, client, config.elements_log_path,
+                parallel=parallel)
+            report(
+                f"bulk match: groups={bstats['groups_total']} ai_calls={bstats['ai_calls']} "
+                f"resolved_ai={bstats['resolved_ai']} created={bstats['created']} "
+                f"failed_chunks={bstats['judge_failed_chunks']}")
+            save_registry(config.elements_registry_path, registry)
     else:
         report("consolidating registry (one-time)")
         registry = bootstrap_registry(config.library_dir, seeds, client,
