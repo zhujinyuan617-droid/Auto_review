@@ -42,7 +42,7 @@ def new_registry_from_seeds(seeds: dict) -> dict:
                 "id": eid,
                 "facet": facet,
                 "display_name": canonical,
-                "aliases": list(aliases),
+                "aliases": [a for a in aliases if norm_key(a) != norm_key(canonical)],
                 "redirect_to": None,
                 "origin": "seed",
                 "human_locked": False,
@@ -81,7 +81,7 @@ def create_entry(registry: dict, facet: str, display_name: str, origin: str, log
         "origin": origin,
         "human_locked": False,
     }
-    append_log(log_path, {"event": "create", "element_id": eid, "detail": display_name, "source": origin})
+    append_log(log_path, {"event": "create", "element_id": eid, "detail": display_name, "source": origin, "facet": facet})
     return eid
 
 
@@ -96,6 +96,13 @@ def add_alias(registry: dict, eid: str, alias: str, source: str, log_path: Path)
 
 
 def merge_entries(registry: dict, from_id: str, into_id: str, source: str, log_path: Path) -> None:
+    if from_id not in registry["entries"]:
+        raise ValueError(f"merge source unknown: {from_id}")
+    if into_id not in registry["entries"]:
+        raise ValueError(f"merge target unknown: {into_id}")
+    into_id = resolve_id(registry, into_id)
+    if from_id == into_id:
+        raise ValueError(f"cannot merge an entry into itself: {from_id}")
     registry["entries"][from_id]["redirect_to"] = into_id
     if source == "human":
         registry["entries"][into_id]["human_locked"] = True
@@ -114,6 +121,8 @@ def resolve_id(registry: dict, eid: str) -> str:
 
 def rename_entry(registry: dict, eid: str, display_name: str, log_path: Path) -> None:
     entry = registry["entries"][eid]
+    if norm_key(display_name) == norm_key(entry["display_name"]):
+        return
     old_name = entry["display_name"]
     # Archive old display_name as alias so it stays searchable.
     # Bypass the norm_key == display_name guard in add_alias (old_name IS the current display_name).

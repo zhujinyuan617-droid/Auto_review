@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from docdecomp.element_registry import (
     add_alias,
     create_entry,
@@ -82,3 +84,45 @@ def test_save_and_load_roundtrip(tmp_path: Path):
 
 def test_norm_key():
     assert norm_key("  Ball-Milling ") == norm_key("ball milling")
+
+
+def test_merge_guards_and_target_resolution(tmp_path: Path):
+    log = tmp_path / "log.jsonl"
+    reg = new_registry_from_seeds(_seeds())
+    a = create_entry(reg, "material", "kerogen", "bootstrap", log)
+    b = create_entry(reg, "material", "type II kerogen", "bootstrap", log)
+    c = create_entry(reg, "material", "kerogen II-D", "bootstrap", log)
+    with pytest.raises(ValueError):
+        merge_entries(reg, a, "elem:material/ghost", "human", log)
+    with pytest.raises(ValueError):
+        merge_entries(reg, a, a, "human", log)
+    merge_entries(reg, b, a, "human", log)
+    merge_entries(reg, c, b, "human", log)  # target b is redirected -> must attach to a
+    assert reg["entries"][c]["redirect_to"] == a
+    assert resolve_id(reg, c) == a
+
+
+def test_rename_to_same_name_is_noop(tmp_path: Path):
+    log = tmp_path / "log.jsonl"
+    reg = new_registry_from_seeds(_seeds())
+    a = create_entry(reg, "preparation", "acid washing", "bootstrap", log)
+    before_events = len(log.read_text(encoding="utf-8").splitlines())
+    rename_entry(reg, a, "Acid  Washing", log)  # same name modulo norm_key
+    assert reg["entries"][a]["aliases"] == []
+    assert reg["entries"][a]["display_name"] == "acid washing"
+    assert len(log.read_text(encoding="utf-8").splitlines()) == before_events
+
+
+def test_seed_aliases_deduped_against_canonical():
+    reg = new_registry_from_seeds(_seeds())
+    bm = reg["entries"]["elem:preparation/ball-milling"]
+    assert "ball-milling" not in bm["aliases"]  # norm_key-equal to display name
+    assert "mechanical milling" in bm["aliases"]
+
+
+def test_create_event_carries_facet(tmp_path: Path):
+    log = tmp_path / "log.jsonl"
+    reg = new_registry_from_seeds(_seeds())
+    create_entry(reg, "analysis", "tortuosity analysis", "bootstrap", log)
+    event = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    assert event["event"] == "create" and event["facet"] == "analysis"
