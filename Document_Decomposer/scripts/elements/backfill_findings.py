@@ -106,7 +106,9 @@ def main() -> int:
     db_path = data_dir / "index.db"
     log_path = data_dir / "element_events.log"
 
-    if registry_path.exists() and ok:
+    if registry_path.exists():
+        # bulk 的归一作用域 = 全库,与本轮抽取成败(ok)解耦:即便 Phase A 全失败,
+        # exact 命中/redirect 重指/悬空自愈仍是零成本动作,照做。
         registry = load_registry(registry_path)
         if args.match_mode == "bulk":
             all_papers = [p.parent for p in sorted(library.glob("*/elements.json"))]
@@ -114,7 +116,8 @@ def main() -> int:
                 all_papers, registry, client, log_path, parallel=args.parallel)
             print(
                 f"bulk match: groups={mstats['groups_total']} "
-                f"ai_calls={mstats['ai_calls']} created={mstats['created']} "
+                f"ai_calls={mstats['ai_calls']} resolved_ai={mstats['resolved_ai']} "
+                f"created={mstats['created']} "
                 f"failed_chunks={mstats['judge_failed_chunks']} "
                 f"papers_written={mstats['papers_written']}",
                 flush=True,
@@ -131,7 +134,7 @@ def main() -> int:
         save_registry(registry_path, registry)
         n_papers = build_index(library, registry, db_path)
         print(f"registry saved; index rebuilt over {n_papers} papers", flush=True)
-    elif not registry_path.exists():
+    else:
         print(
             f"WARNING: no registry found at {registry_path}; canonical_id left null. "
             "Run bootstrap_element_registry.py + ai_extract_elements.py --force first.",

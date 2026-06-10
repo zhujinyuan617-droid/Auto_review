@@ -157,7 +157,8 @@ def run_bootstrap(config: AppConfig, client: Any, report: Report = lambda m: Non
             parallel=parallel)
         report(
             f"bulk match: groups={bstats['groups_total']} ai_calls={bstats['ai_calls']} "
-            f"created={bstats['created']} failed_chunks={bstats['judge_failed_chunks']}")
+            f"resolved_ai={bstats['resolved_ai']} created={bstats['created']} "
+            f"failed_chunks={bstats['judge_failed_chunks']}")
         save_registry(config.elements_registry_path, registry)
     else:
         report("consolidating registry (one-time)")
