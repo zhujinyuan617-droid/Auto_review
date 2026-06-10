@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from .element_quotes import verify_quote
 from .element_values import parse_values
@@ -53,6 +54,45 @@ _SYSTEM = (
     "7. Output strictly the JSON schema; no Markdown."
 )
 
+# ---------------------------------------------------------------------------
+# Finding-only system prompt
+# Composed from the SAME rule texts as _SYSTEM (rules 1, 2, 3 verbatim;
+# the full finding rule (was #6); final strict-output rule), renumbered 1–5.
+# Do NOT derive this by parsing _SYSTEM at runtime — write the constant once.
+# ---------------------------------------------------------------------------
+_FINDING_SYSTEM = (
+    "You extract PRINCIPAL FINDINGS from one paper's reading blocks.\n"
+    "Rules:\n"
+    "1. role='used' ONLY for what THIS paper itself did/measured/simulated/analyzed. "
+    "Things only cited from other papers or general background are role='mentioned'. "
+    "In a review article almost everything is 'mentioned'.\n"
+    "2. For EVERY element give one verbatim quote (<=300 chars) copied EXACTLY, "
+    "character-for-character, from ONE reading block, and that block's reading_block_id. "
+    "The quote must contain the element mention. For 'condition' elements the quote "
+    "must include the numeric phrase. Never paraphrase inside the quote.\n"
+    "3. surface = the element name as this paper writes it (short noun phrase).\n"
+    "4. facet='finding': report ONLY conclusions this paper itself establishes (directional "
+    "effects, measured outcomes, demonstrated mechanisms). surface = a short declarative "
+    "noun phrase (e.g. 'water reduces methane adsorption capacity'). The quote must contain "
+    "the concluding statement verbatim. A review restating another paper's findings -> role='mentioned'.\n"
+    "Report the paper's PRINCIPAL findings (the conclusions an abstract would state), "
+    "not every results sentence -- prefer statements from abstract/conclusion blocks. "
+    "A finding asserts a direction or outcome (X increases/reduces/controls Y); the bare "
+    "quantity or activity it concerns (e.g. 'isosteric heat', 'isotherm fitting') belongs "
+    "to analysis, not finding. A review's OWN cross-literature synthesis conclusion is "
+    "role='used'; an individual result it merely restates from a cited paper is 'mentioned'.\n"
+    "5. Output strictly the JSON schema; no Markdown."
+)
+
+# Same JSON shape as ELEMENTS_SCHEMA_HINT; facet will always be 'finding'.
+FINDING_SCHEMA_HINT = ELEMENTS_SCHEMA_HINT
+
+
+def _finding_only_seeds(seeds: dict) -> dict:
+    """Return a narrowed seeds dict containing only the 'finding' facet entry."""
+    finding_facets = [f for f in seeds["facets"] if f["id"] == "finding"]
+    return {"facets": finding_facets, "synonyms": {}}
+
 
 def _blocks_for_prompt(reading: dict, max_block_chars: int) -> list[dict]:
     out = []
@@ -72,6 +112,25 @@ def _blocks_for_prompt(reading: dict, max_block_chars: int) -> list[dict]:
             }
         )
     return out
+
+
+def build_finding_prompt(reading: dict, seeds: dict, max_block_chars: int = MAX_BLOCK_CHARS) -> list[dict]:
+    """Narrowed prompt: only extracts 'finding' facet.
+
+    system = rules 1/2/3 + full finding rule + strict-output (renumbered 1..5,
+    defined in _FINDING_SYSTEM).  payload facets filtered to id=='finding'.
+    """
+    finding_seeds = _finding_only_seeds(seeds)
+    payload = {
+        "paper_id": reading.get("paper_id", ""),
+        "facets": [{"id": f["id"], "description": f["description"]} for f in finding_seeds["facets"]],
+        "reading_blocks": _blocks_for_prompt(reading, max_block_chars),
+    }
+    user = (
+        "Extract the principal findings from this paper.\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+    return [{"role": "system", "content": _FINDING_SYSTEM}, {"role": "user", "content": user}]
 
 
 def build_elements_prompt(reading: dict, seeds: dict, max_block_chars: int = MAX_BLOCK_CHARS) -> list[dict]:
@@ -155,3 +214,52 @@ def run_element_extraction(paper_dir: Path, client, seeds: dict) -> dict:
     }
     write_json(paper_dir / "elements.json", result)
     return result
+
+
+def backfill_findings(paper_dir: Path, client: Any, seeds: dict) -> dict:
+    """Idempotent finding backfill for a paper that already has elements.json.
+
+    Reads existing elements.json (raises ValueError if absent), removes all
+    occurrences with facet=='finding', calls the AI with _FINDING_SYSTEM using
+    a narrowed seeds dict (finding facet only), verifies quotes via
+    parse_elements_response, keeps only facet=='finding' results (non-finding
+    items returned by AI are dropped as bad_facet), appends them to the
+    non-finding occurrences, and writes back.
+
+    New dropped entries carry {"phase": "finding_backfill"} to distinguish them
+    from the original extraction phase; original dropped list is preserved.
+
+    Returns {"added": n, "removed_old": m, "dropped": k}.
+    """
+    elements_path = paper_dir / "elements.json"
+    if not elements_path.exists():
+        raise ValueError(f"elements.json not found: {elements_path}")
+
+    data: dict = json.loads(elements_path.read_text(encoding="utf-8"))
+    reading = json.loads((paper_dir / "reading_blocks.json").read_text(encoding="utf-8"))
+
+    # Strip existing finding occurrences (idempotent: remove before re-adding).
+    original_occs: list[dict] = data.get("occurrences") or []
+    non_finding = [o for o in original_occs if o.get("facet") != "finding"]
+    removed_old = len(original_occs) - len(non_finding)
+
+    # Call AI with the finding-only system prompt.
+    finding_seeds = _finding_only_seeds(seeds)
+    messages = build_finding_prompt(reading, seeds)
+    raw = client.chat_json(messages, FINDING_SCHEMA_HINT)
+
+    # parse_elements_response enforces the facet whitelist: non-finding items
+    # from the AI are dropped as bad_facet automatically.
+    new_occs, new_dropped = parse_elements_response(raw, reading, finding_seeds)
+
+    # Extra safety: keep only facet=='finding' from what parse returned.
+    finding_occs = [o for o in new_occs if o.get("facet") == "finding"]
+
+    # Tag new dropped entries with phase for auditability.
+    tagged_dropped = [{**d, "phase": "finding_backfill"} for d in new_dropped]
+
+    data["occurrences"] = non_finding + finding_occs
+    data["dropped"] = (data.get("dropped") or []) + tagged_dropped
+
+    write_json(elements_path, data)
+    return {"added": len(finding_occs), "removed_old": removed_old, "dropped": len(new_dropped)}
