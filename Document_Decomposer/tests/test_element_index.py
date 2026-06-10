@@ -99,3 +99,50 @@ def test_paper_elements_grouped(tmp_path: Path):
     pe = paper_elements(db, "S90")
     facets = {g["facet"] for g in pe["groups"]}
     assert facets == {"characterization", "preparation"}
+
+
+def test_redirect_resolved_at_build(tmp_path: Path):
+    from docdecomp.element_registry import create_entry, merge_entries
+
+    reg = new_registry_from_seeds(SEEDS)
+    log = tmp_path / "log.jsonl"
+    a = create_entry(reg, "material", "kerogen", "bootstrap", log)
+    b = create_entry(reg, "material", "type II kerogen", "bootstrap", log)
+    merge_entries(reg, b, a, "human", log)
+    _paper(tmp_path, "S90", [(b, "type II kerogen")])  # occurrence cites the MERGED-AWAY id
+    db = tmp_path / "elements_index.sqlite"
+    build_index(tmp_path, reg, db)
+    detail = get_element(db, "material", "kerogen")
+    assert detail is not None and detail["paper_count"] == 1  # folded into target
+    assert get_element(db, "material", "type-ii-kerogen") is None  # stub absent
+
+
+def test_concurrent_reindex_and_query_do_not_error(tmp_path: Path):
+    import threading
+
+    reg, db, _ = _build(tmp_path)
+    errors: list[Exception] = []
+
+    def rebuild():
+        try:
+            for _ in range(10):
+                build_index(tmp_path, reg, db)
+        except Exception as exc:  # pragma: no cover - failure path
+            errors.append(exc)
+
+    def read():
+        try:
+            for _ in range(20):
+                query_stats(db, "characterization")
+                query_overview(db, top_n=3)
+        except Exception as exc:  # pragma: no cover - failure path
+            errors.append(exc)
+
+    threads = [threading.Thread(target=rebuild) for _ in range(2)] + [
+        threading.Thread(target=read) for _ in range(4)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []

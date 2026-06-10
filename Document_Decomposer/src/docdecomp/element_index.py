@@ -65,6 +65,7 @@ def build_index(library_dir: Path, registry: dict, db_path: Path) -> int:
             )
     with _REINDEX_LOCK:
         conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA busy_timeout=5000")  # explicit: readers must wait out a rebuild transaction instead of raising "database is locked"
         try:
             conn.executescript(_CREATE)
             with conn:
@@ -79,6 +80,7 @@ def build_index(library_dir: Path, registry: dict, db_path: Path) -> int:
 
 def _conn(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -135,7 +137,12 @@ def search_elements(db_path: Path, q: str, facet: str | None = None) -> list[dic
                 ORDER BY papers DESC LIMIT 50""",
             args,
         ).fetchall()
-        return [{**dict(r), "aliases": json.loads(r["aliases_json"])} for r in rows]
+        out = []
+        for r in rows:
+            item = dict(r)
+            item["aliases"] = json.loads(item.pop("aliases_json"))
+            out.append(item)
+        return out
     finally:
         conn.close()
 
@@ -239,6 +246,8 @@ def query_combination(db_path: Path, element_ids: list[str], role: str = "used")
 
 
 def paper_elements(db_path: Path, paper_id: str) -> dict:
+    """All occurrences for one paper, grouped by facet. Deliberately unfiltered by
+    role (a paper detail view wants everything); each item carries its role."""
     conn = _conn(db_path)
     try:
         rows = conn.execute(
