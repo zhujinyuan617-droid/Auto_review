@@ -68,6 +68,13 @@ BootstrapRunner = Callable[[Callable[[str], None]], dict[str, Any]]
 
 class ImportRequest(BaseModel):
     pdf_path: str
+    batch_id: str | None = None  # 同一次多选导入共用一个批次号 → 地图"新着陆"识别
+
+
+class ClusterLabelRequest(BaseModel):
+    lens: str
+    cluster_id: str
+    label: str
 
 
 class RisRequest(BaseModel):
@@ -150,7 +157,15 @@ def create_app(
     @app.post("/papers/import")
     def import_paper(req: ImportRequest) -> dict:
         pdf_path = Path(req.pdf_path)
-        job_id = jobs.submit(lambda report: runner(pdf_path, report))
+        batch_id = req.batch_id
+
+        def _run(report: Callable[[str], None]) -> str:
+            paper_id = runner(pdf_path, report)
+            if batch_id:
+                map_service.record_import_batch(config, batch_id, paper_id)
+            return paper_id
+
+        job_id = jobs.submit(_run)
         return {"job_id": job_id}
 
     @app.get("/jobs/{job_id}")
@@ -416,6 +431,44 @@ def create_app(
     def map_route(lens: str = "topic", cluster: str = "") -> dict[str, Any]:
         _check_lens(lens)
         return map_service.route(config, lens, cluster)
+
+    @app.put("/map/cluster-label")
+    def map_cluster_label(req: ClusterLabelRequest) -> dict[str, Any]:
+        _check_lens(req.lens)
+        try:
+            return map_service.set_cluster_label(config, req.lens, req.cluster_id, req.label)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.post("/map/describe")
+    def map_describe(lens: str = "topic") -> dict[str, Any]:
+        _check_lens(lens)
+        from .ai.client import build_ai_client
+        try:
+            client = build_ai_client(elements_service.engine_root())
+        except Exception:  # noqa: BLE001 — 无 key/配置:优雅缺省,只回已有描述
+            client = None
+        return map_service.describe_clusters(config, lens, client)
+
+    @app.get("/map/neighbors")
+    def map_neighbors(paper_id: str, lens: str = "topic", k: int = 8) -> dict[str, Any]:
+        if lens in ("method", "material"):
+            _elements_db_or_503()
+        return map_service.neighbors(config, lens, paper_id, k=k)
+
+    @app.get("/map/first-seen")
+    def map_first_seen(element_id: str | None = None,
+                       year_from: int | None = None, year_to: int | None = None) -> dict[str, Any]:
+        _elements_db_or_503()
+        if element_id:
+            return map_service.element_first_seen(config, element_id)
+        if year_from is not None and year_to is not None:
+            return map_service.first_seen_in_range(config, year_from, year_to)
+        raise HTTPException(status_code=400, detail="element_id or year_from+year_to required")
+
+    @app.get("/map/institution-elements")
+    def map_institution_elements(id: str) -> dict[str, Any]:
+        return map_service.institution_elements(config, id)
 
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
     return app
