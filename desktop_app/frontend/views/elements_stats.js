@@ -151,11 +151,13 @@ function renderBuildOffer(view) {
           log.textContent = s.progress.slice(-8).join("\n");
           if (s.status !== "running") {
             clearInterval(timer);
+            if (!location.hash.startsWith("#/stats")) return; // 用户已离开本屏,不碰别屏的 DOM
             if (s.status === "succeeded") renderOverview(view);
             else errorState(view, "构建失败:" + s.error, () => renderBuildOffer(view));
           }
         } catch (err) {
           clearInterval(timer);
+          if (!location.hash.startsWith("#/stats")) return; // 用户已离开本屏,不碰别屏的 DOM
           errorState(view, err.message, () => renderBuildOffer(view));
         }
       }, 2000);
