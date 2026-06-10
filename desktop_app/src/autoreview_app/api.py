@@ -288,6 +288,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="unknown element")
         if req.merge_into and req.merge_into not in registry["entries"]:
             raise HTTPException(status_code=400, detail="merge target unknown")
+        if req.merge_into == eid:
+            raise HTTPException(status_code=400, detail="cannot merge entry into itself")
         if req.display_name:
             rename_entry(registry, eid, req.display_name, config.elements_log_path)
         if req.add_alias:

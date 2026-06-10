@@ -72,6 +72,9 @@ def test_put_rename_and_merge_rebuilds_index(tmp_path: Path):
     assert c.put("/elements/characterization/nope", json={"display_name": "x"}).status_code == 404
     bad = c.put("/elements/characterization/x-ray-diffraction", json={"merge_into": "elem:characterization/ghost"})
     assert bad.status_code == 400
+    self_merge = c.put("/elements/characterization/x-ray-diffraction",
+                       json={"merge_into": "elem:characterization/x-ray-diffraction"})
+    assert self_merge.status_code == 400
 
 
 def test_coverage_and_bootstrap_job(tmp_path: Path):
