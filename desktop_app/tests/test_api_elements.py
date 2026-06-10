@@ -97,3 +97,29 @@ def test_coverage_and_bootstrap_job(tmp_path: Path):
         time.sleep(0.05)
     assert status["status"] == "succeeded"
     assert status["result"]["papers_indexed"] == 1
+
+
+def test_put_hardening_cycle_combo_and_unbuilt(tmp_path: Path):
+    cfg = _built_library(tmp_path)
+    c = _client(cfg)
+    # 建立 SEM -> XRD 重定向
+    r = c.put("/elements/characterization/scanning-electron-microscopy",
+              json={"merge_into": "elem:characterization/x-ray-diffraction"})
+    assert r.status_code == 200
+    # 经重定向环的自合并必须 400(resolve 后即自身)
+    cycle = c.put("/elements/characterization/x-ray-diffraction",
+                  json={"merge_into": "elem:characterization/scanning-electron-microscopy"})
+    assert cycle.status_code == 400
+    # 改名 + 合并同请求必须 400
+    combo = c.put("/elements/characterization/x-ray-diffraction",
+                  json={"display_name": "X", "merge_into": "elem:preparation/ball-milling"})
+    assert combo.status_code == 400
+
+    # 从未构建过的库:PUT 必须 503 而非 500
+    fresh_root = tmp_path / "fresh_root"
+    fresh_root.mkdir()
+    fresh = AppConfig(library_dir=fresh_root / "library")
+    (fresh_root / "library").mkdir()
+    c2 = _client(fresh)
+    r2 = c2.put("/elements/characterization/x-ray-diffraction", json={"display_name": "x"})
+    assert r2.status_code == 503

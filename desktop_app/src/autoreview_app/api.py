@@ -39,6 +39,7 @@ from docdecomp.element_registry import (
     load_registry,
     merge_entries,
     rename_entry,
+    resolve_id,
     save_registry,
 )
 
@@ -282,20 +283,30 @@ def create_app(
 
     @app.put("/elements/{facet}/{slug}")
     def element_update(facet: str, slug: str, req: ElementUpdate) -> dict:
+        if not config.elements_registry_path.exists():
+            raise HTTPException(status_code=503, detail="elements index not built")
         registry = load_registry(config.elements_registry_path)
         eid = f"elem:{facet}/{slug}"
         if eid not in registry["entries"]:
             raise HTTPException(status_code=404, detail="unknown element")
-        if req.merge_into and req.merge_into not in registry["entries"]:
-            raise HTTPException(status_code=400, detail="merge target unknown")
-        if req.merge_into == eid:
-            raise HTTPException(status_code=400, detail="cannot merge entry into itself")
+        if req.merge_into:
+            if req.display_name or req.add_alias:
+                raise HTTPException(
+                    status_code=400, detail="merge_into cannot be combined with other operations"
+                )
+            if req.merge_into not in registry["entries"]:
+                raise HTTPException(status_code=400, detail="merge target unknown")
+            if resolve_id(registry, req.merge_into) == eid:
+                raise HTTPException(status_code=400, detail="cannot merge entry into itself")
         if req.display_name:
             rename_entry(registry, eid, req.display_name, config.elements_log_path)
         if req.add_alias:
             registry_add_alias(registry, eid, req.add_alias, "human", config.elements_log_path)
         if req.merge_into:
-            merge_entries(registry, eid, req.merge_into, "human", config.elements_log_path)
+            try:
+                merge_entries(registry, eid, req.merge_into, "human", config.elements_log_path)
+            except ValueError as exc:  # defense in depth: engine guards map to 400
+                raise HTTPException(status_code=400, detail=str(exc))
         save_registry(config.elements_registry_path, registry)
         build_index(config.library_dir, registry, config.elements_db)
         return {"entry": registry["entries"][eid]}
