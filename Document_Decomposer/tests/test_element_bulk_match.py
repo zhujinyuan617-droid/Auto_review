@@ -149,3 +149,30 @@ def test_judge_chunks_maps_by_normkey_and_isolates_failures():
     assert verdicts[("characterization", "powder xrd")] == "elem:characterization/x-ray-diffraction"
     assert ("characterization", "weird thing one") in failed       # 失败块只标记不扩散
     assert n_ok == 1 and n_failed == 1
+
+
+def test_judge_chunks_runs_concurrently_and_passes_candidates():
+    import threading
+    from docdecomp.element_matching import _judge_chunks
+
+    class _BarrierClient:
+        """两个调用都到齐才放行——若串行执行会死锁超时,故能钉住真并发。"""
+        def __init__(self):
+            self.barrier = threading.Barrier(2, timeout=10)
+            self.threads = set()
+            self.payloads = []
+        def chat_json(self, messages, hint):
+            self.threads.add(threading.current_thread().name)
+            self.payloads.append(messages[1]["content"])
+            self.barrier.wait()
+            return {"matches": []}
+
+    cand = {"id": "elem:material/quartz", "display_name": "quartz", "aliases": []}
+    chunk_a = [{"facet": "material", "surface": "alpha quartz", "candidates": [cand]}]
+    chunk_b = [{"facet": "material", "surface": "beta quartz", "candidates": [cand]}]
+    client = _BarrierClient()
+    verdicts, failed, n_ok, n_failed = _judge_chunks(
+        {"material": [chunk_a, chunk_b]}, client, parallel=2)
+    assert n_ok == 2 and n_failed == 0
+    assert len(client.threads) == 2                      # 真并发(两个不同线程)
+    assert all("quartz" in p for p in client.payloads)   # 候选并集确实进了提示词

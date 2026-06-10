@@ -153,7 +153,7 @@ def collect_unresolved(
 
 
 def _pack_chunks(items: list[dict], chunk_size: int = 30, candidate_cap: int = 120) -> list[list[dict]]:
-    """Greedy pack same-facet items: <=chunk_size surfaces AND <=candidate_cap union candidates."""
+    """Greedy pack same-facet items: <=chunk_size surfaces AND <=candidate_cap union candidates (soft cap: a single oversized item gets its own chunk)."""
     chunks: list[list[dict]] = []
     cur: list[dict] = []
     cur_ids: set[str] = set()
@@ -178,6 +178,8 @@ def _judge_chunks(
     所以回显大小写差异不会错挂(同键即同组)。失败块的 surfaces 进 failed_keys,
     本轮跳过(宁可漏),下次重跑再试;绝不因 429/超时把整批拍成 create。
     n_ok/n_failed = 成功/失败的块数(= AI 调用计数)。
+    candidate_cap 对单项超限是软上界(该项独占一块);
+    BaseException(如 KeyboardInterrupt)故意不隔离、直接传播。
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
