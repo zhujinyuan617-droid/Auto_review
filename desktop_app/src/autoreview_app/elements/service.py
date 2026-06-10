@@ -5,6 +5,8 @@ only wires paths/config and composes the per-paper and bootstrap flows.
 """
 from __future__ import annotations
 
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
 
@@ -12,6 +14,11 @@ from .. import engine_bridge
 
 engine_bridge.ensure_engine_scripts_on_path()
 
+from docdecomp.card_tags import (  # noqa: E402
+    apply_derived_tags,
+    derive_classification,
+    derive_topic_ids,
+)
 from docdecomp.element_bootstrap import bootstrap_registry, superbucket_report  # noqa: E402
 from docdecomp.element_extraction import run_element_extraction  # noqa: E402
 from docdecomp.element_index import build_index  # noqa: E402
@@ -22,6 +29,7 @@ from docdecomp.element_registry import (  # noqa: E402
     new_registry_from_seeds,
     save_registry,
 )
+from docdecomp.io_utils import write_json  # noqa: E402
 
 from ..config import AppConfig  # noqa: E402
 
@@ -45,6 +53,21 @@ def ensure_registry(config: AppConfig) -> dict:
     return registry
 
 
+def _derive_tags_for_paper(paper_dir: Path, registry: dict) -> bool:
+    """Derive and write card_tags for a single paper. Returns True if card was written."""
+    elements_path = paper_dir / "elements.json"
+    card_path = paper_dir / "literature_card.json"
+    if not elements_path.exists() or not card_path.exists():
+        return False
+    elements_doc = json.loads(elements_path.read_text(encoding="utf-8"))
+    card = json.loads(card_path.read_text(encoding="utf-8"))
+    derived = derive_classification(elements_doc, registry)
+    apply_derived_tags(card, derived)
+    card.setdefault("classification", {})["topic_ids"] = derive_topic_ids(card, registry)
+    write_json(card_path, card)
+    return True
+
+
 def run_elements_for_paper(paper_dir: Path, client: Any, config: AppConfig,
                            report: Report = lambda m: None) -> dict:
     seeds = load_seeds(seeds_path())
@@ -56,6 +79,10 @@ def run_elements_for_paper(paper_dir: Path, client: Any, config: AppConfig,
     save_registry(config.elements_registry_path, registry)
     report("updating elements index")
     build_index(config.library_dir, registry, config.elements_db)
+    card_path = paper_dir / "literature_card.json"
+    if card_path.exists():
+        report("deriving card tags")
+        _derive_tags_for_paper(paper_dir, registry)
     return {"occurrences": len(result["occurrences"]), "dropped": len(result["dropped"])}
 
 
@@ -71,31 +98,56 @@ def coverage(config: AppConfig) -> dict:
             "pending": pending, "deferred": deferred}
 
 
-def run_bootstrap(config: AppConfig, client: Any, report: Report = lambda m: None) -> dict:
+def run_bootstrap(config: AppConfig, client: Any, report: Report = lambda m: None,
+                  parallel: int = 6) -> dict:
     """First run: extract missing -> ONE-TIME consolidation -> index.
 
     Later runs (registry already exists): extract missing + stream-match only —
     NEVER re-consolidates, so the registry stays frozen (anti-I12 drift). This
     also doubles as the "retry pending papers" action: re-clicking the build
     button tops up coverage incrementally.
+
+    parallel: number of ThreadPool workers for the extraction phase (default 6).
+    JobRegistry.report appends under a lock, so calling report() from worker
+    threads is safe.
     """
     seeds = load_seeds(seeds_path())
     papers = list_paper_dirs(config)
+    pending = [p for p in papers if not (p / "elements.json").exists()]
     extracted = failed = 0
-    for paper_dir in papers:
-        if (paper_dir / "elements.json").exists():
-            continue
-        try:
-            report(f"extracting {paper_dir.name}")
-            run_element_extraction(paper_dir, client, seeds)
-            extracted += 1
-        except Exception as exc:  # noqa: BLE001 — 单篇失败不挡全局, 留待补
-            failed += 1
-            report(f"{paper_dir.name} failed: {type(exc).__name__}")
+
+    if parallel <= 1 or len(pending) <= 1:
+        # Serial path
+        for paper_dir in pending:
+            try:
+                report(f"extracting {paper_dir.name}")
+                run_element_extraction(paper_dir, client, seeds)
+                extracted += 1
+            except Exception as exc:  # noqa: BLE001 — 单篇失败不挡全局, 留待补
+                failed += 1
+                report(f"{paper_dir.name} failed: {type(exc).__name__}")
+    else:
+        # Parallel extraction — one shared client (stateless per-call, house-proven safe)
+        with ThreadPoolExecutor(max_workers=parallel) as pool:
+            fut_to_dir = {
+                pool.submit(run_element_extraction, paper_dir, client, seeds): paper_dir
+                for paper_dir in pending
+            }
+            for fut in as_completed(fut_to_dir):
+                paper_dir = fut_to_dir[fut]
+                try:
+                    fut.result()
+                    extracted += 1
+                    report(f"extracted {paper_dir.name}")
+                except Exception as exc:  # noqa: BLE001
+                    failed += 1
+                    report(f"{paper_dir.name} failed: {type(exc).__name__}")
+
     config.elements_data_dir.mkdir(parents=True, exist_ok=True)
     if config.elements_registry_path.exists():
         report("registry exists: stream-matching all papers (no re-consolidation)")
         registry = load_registry(config.elements_registry_path)
+        # registry 原地变更,必须串行;勿并行化
         for paper_dir in papers:
             if (paper_dir / "elements.json").exists():
                 match_paper_elements(paper_dir, registry, client, config.elements_log_path)
@@ -106,6 +158,11 @@ def run_bootstrap(config: AppConfig, client: Any, report: Report = lambda m: Non
                                       config.elements_data_dir, progress=report)
     n = build_index(config.library_dir, registry, config.elements_db)
     flagged = superbucket_report(registry)
+
+    report("deriving card tags for all papers")
+    for paper_dir in papers:
+        _derive_tags_for_paper(paper_dir, registry)
+
     report(f"done: index over {n} papers; {len(flagged)} superbucket flags")
     return {"papers_indexed": n, "extracted": extracted, "extract_failed": failed,
             "entries": len(registry["entries"]), "superbuckets": flagged}
