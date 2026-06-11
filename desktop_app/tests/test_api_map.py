@@ -295,3 +295,17 @@ def test_region_elements_slim_and_scoped_first_seen(tmp_path: Path):
     assert "LBM" not in names  # 区外论文的要素不进时间线
     assert set(names) == {"GCMC", "Kaolinite", "300 K"}
     assert fs["elements"][0]["first_year"] == 2015  # 按进场年升序
+
+
+def test_paper_detail_includes_authors_and_institutions(tmp_path: Path):
+    # 详情页改造:authorship.json + 机构注册表上屏(缺文件时字段缺省,不报错)
+    client, cfg = _client(tmp_path)
+    _write_card(cfg.library_dir, "S01")
+    _write_card(cfg.library_dir, "S02")
+    _write_authorship(cfg.library_dir, "S01", ["elem:institution/mit"])
+    _write_institutions_registry(cfg, {"elem:institution/mit": "US"})
+    body = client.get("/papers/S01").json()
+    assert body["authors"] == [{"name": "A", "is_senior": True}]
+    assert body["institutions"] == ["MIT"]
+    body2 = client.get("/papers/S02").json()  # 无 authorship.json
+    assert "authors" not in body2 and "institutions" not in body2

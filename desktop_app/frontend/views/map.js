@@ -1383,6 +1383,17 @@ export async function render(view) {
   } catch (err) { arriveFlag = false; }
   if (arriveFlag && batch.length) showArrivals();
 
+  // 详情页「在地图上看这篇」的一次性定位(读后即清)
+  try {
+    const fp = sessionStorage.getItem("mapFocusPaper");
+    if (fp) {
+      sessionStorage.removeItem("mapFocusPaper");
+      const fn = S.byId.get(fp);
+      if (fn) showPaper(fn);
+      else showToast("当前镜头里找不到这篇论文");
+    }
+  } catch (err) { /* sessionStorage 不可用:忽略 */ }
+
   function tick(now) {
     if (S.disposed) return;
     if (S.anim) {

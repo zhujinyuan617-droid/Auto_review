@@ -31,14 +31,33 @@ async function renderList(view) {
   const papers = data.papers || [];
   clear(view);
   const search = el("input", { class: "search", placeholder: "搜索标题 / 期刊…" });
+  const sortSel = el("select", { title: "排序" }, [
+    el("option", { value: "new", text: "最新优先" }),
+    el("option", { value: "old", text: "最旧优先" }),
+    el("option", { value: "title", text: "标题 A–Z" }),
+  ]);
   const list = el("div", { class: "paper-list" });
+
+  const isReview = (p) => /review/i.test(String(p.paper_type || ""));
+  function sorted(rows) {
+    const v = sortSel.value;
+    const yr = (p) => { const y = parseInt(p.year, 10); return isNaN(y) ? null : y; };
+    return rows.slice().sort((a, b) => {
+      if (v === "title") return String(a.title || "").localeCompare(String(b.title || ""));
+      const ya = yr(a), yb = yr(b);
+      if (ya == null && yb == null) return String(a.title || "").localeCompare(String(b.title || ""));
+      if (ya == null) return 1;  // 无年份沉底
+      if (yb == null) return -1;
+      return v === "new" ? yb - ya : ya - yb;
+    });
+  }
 
   function draw(filter) {
     clear(list);
     const f = (filter || "").toLowerCase();
-    const rows = papers.filter(
+    const rows = sorted(papers.filter(
       (p) => !f || (p.title || "").toLowerCase().includes(f) || (p.journal || "").toLowerCase().includes(f)
-    );
+    ));
     if (rows.length === 0) {
       list.append(el("p", { class: "muted", text: "无匹配" }));
       return;
@@ -46,15 +65,23 @@ async function renderList(view) {
     for (const p of rows) {
       list.append(
         el("a", { class: "paper-row", href: "#/papers/" + p.paper_id }, [
-          el("span", { class: "ptitle", text: p.title || p.paper_id }),
-          el("span", { class: "pmeta", text: [p.year, p.journal, p.paper_type].filter(Boolean).join(" · ") }),
+          el("span", { class: "ptitle" }, [
+            p.title || p.paper_id,
+            isReview(p) ? el("span", { class: "tag review-tag", text: "综述" }) : null,
+          ]),
+          el("span", { class: "pmeta", text: [p.year, p.journal].filter(Boolean).join(" · ") }),
         ])
       );
     }
   }
 
   search.addEventListener("input", () => draw(search.value));
-  view.append(el("h2", { text: `藏书 ${papers.length} 篇` }), search, list);
+  sortSel.addEventListener("change", () => draw(search.value));
+  view.append(
+    el("h2", { text: `藏书 ${papers.length} 篇` }),
+    el("div", { style: "display:flex;gap:8px;align-items:center;" }, [search, sortSel]),
+    list
+  );
   draw("");
 }
 
@@ -75,11 +102,35 @@ async function renderDetail(view, id) {
     return errorState(view, err.message, () => renderDetail(view, id));
   }
   clear(view);
+  // 头部:标题 → 年份·期刊·DOI(可点)→ 作者/机构(authorship 上屏)→ 操作按钮
+  const metaP = el("p", { class: "pmeta" }, [[p.year, p.journal].filter(Boolean).join(" · ")]);
+  if (p.doi) {
+    if (metaP.textContent) metaP.append(" · ");
+    metaP.append(el("a", { href: "https://doi.org/" + p.doi, target: "_blank",
+      rel: "noopener", text: "doi:" + p.doi, title: "打开出版社页面" }));
+  }
   view.append(
     el("a", { class: "back", href: "#/papers" }, "← 返回藏书"),
     el("h2", { text: p.title || p.paper_id }),
-    el("p", { class: "pmeta", text: [p.year, p.journal, p.doi].filter(Boolean).join(" · ") })
+    metaP
   );
+  if ((p.authors || []).length) {
+    const hasSenior = p.authors.some((a) => a.is_senior);
+    view.append(el("p", { class: "pmeta", text: "作者:"
+      + p.authors.map((a) => a.name + (a.is_senior ? "★" : "")).join("、")
+      + (hasSenior ? "(★资深作者)" : "") }));
+  }
+  if ((p.institutions || []).length) {
+    view.append(el("p", { class: "pmeta", text: "机构:" + p.institutions.join(" · ") }));
+  }
+  const btn = el("button", { text: "查看拆解 →" });
+  btn.addEventListener("click", () => { location.hash = "#/papers/" + id + "/decompose"; });
+  const mapBtn = el("button", { text: "在地图上看这篇", title: "跳回知识地图并定位到它所在的区" });
+  mapBtn.addEventListener("click", () => {
+    try { sessionStorage.setItem("mapFocusPaper", id); } catch (err) { /* 隐私模式跳过 */ }
+    location.hash = "#/map";
+  });
+  view.append(el("div", { class: "section", style: "display:flex;gap:8px;" }, [btn, pdfButton(id), mapBtn]));
 
   const card = el("div", { class: "card-box" });
   if (p.objective) card.append(el("div", { class: "section" }, [el("h3", { text: "目标" }), el("p", { text: p.objective })]));
@@ -91,16 +142,29 @@ async function renderDetail(view, id) {
     sec.append(ul);
     card.append(sec);
   }
-  for (const row of [
+  view.append(card);
+
+  // 研究要素(要素索引口径,与地图论文卡同一套词;未构建时退回旧卡片标签)
+  const legacyRows = () => [
     tagRow("研究对象", p.research_objects),
     tagRow("方法", p.methods),
     tagRow("领域", p.domain_tags),
-  ]) if (row) card.append(row);
-  view.append(card);
-
-  const btn = el("button", { text: "查看拆解 →" });
-  btn.addEventListener("click", () => { location.hash = "#/papers/" + id + "/decompose"; });
-  view.append(el("div", { class: "section", style: "display:flex;gap:8px;" }, [btn, pdfButton(id)]));
+  ].filter(Boolean);
+  try {
+    const d = await getJSON("/papers/" + encodeURIComponent(id) + "/elements");
+    const METHOD_FACETS = ["simulation", "measurement", "preparation", "characterization", "analysis"];
+    const by = new Map((d.groups || []).map((g) => [g.facet, g.items || []]));
+    const names = (items) => (items || []).map((it) => it.display_name || it.element_id);
+    const rows = [
+      tagRow("材料", names(by.get("material"))),
+      tagRow("方法", names(METHOD_FACETS.flatMap((f) => by.get(f) || []))),
+      tagRow("条件", names(by.get("condition"))),
+      tagRow("主题", names(by.get("topic"))),
+    ].filter(Boolean);
+    for (const r of rows.length ? rows : legacyRows()) card.append(r);
+  } catch (err) {
+    for (const r of legacyRows()) card.append(r);
+  }
 
   // 图表画廊(Wave-3 ②:图表墙撤屏后的完整画廊新家);拉不到图不挡详情
   try {

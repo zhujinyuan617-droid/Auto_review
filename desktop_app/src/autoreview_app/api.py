@@ -196,6 +196,24 @@ def create_app(
         paper = get_paper(config.index_db, paper_id)
         if paper is None:
             raise HTTPException(status_code=404, detail="unknown paper")
+        # 作者+机构上屏(详情页改造):读已有 authorship.json + 机构注册表,零新调用;
+        # 任一文件缺失/坏损则不带这两个字段(前端按缺省处理,页面不变差)
+        try:
+            doc = json.loads((config.library_dir / paper_id / "authorship.json")
+                             .read_text(encoding="utf-8"))
+            reg = json.loads(config.institutions_registry_path.read_text(encoding="utf-8"))
+            names = {e["id"]: e.get("display_name", e["id"])
+                     for e in (reg.get("entries") or {}).values() if e.get("id")}
+            inst_ids: dict[str, None] = {}
+            authors = []
+            for a in sorted(doc.get("authors") or [], key=lambda x: x.get("position") or 0):
+                for i in a.get("institution_ids") or []:
+                    inst_ids.setdefault(i)
+                authors.append({"name": a.get("name", ""), "is_senior": bool(a.get("is_senior"))})
+            paper["authors"] = authors
+            paper["institutions"] = [names.get(i, i.rsplit("/", 1)[-1]) for i in inst_ids]
+        except (OSError, ValueError):
+            pass
         return paper
 
     @app.get("/papers/{paper_id}/decomposition")

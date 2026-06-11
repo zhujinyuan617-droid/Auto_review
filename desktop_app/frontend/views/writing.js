@@ -49,15 +49,32 @@ async function loadAngles(container) {
     container.append(el("p", { class: "muted", text: "无候选 —— 关系/概念数据未配置或为空。" }));
     return;
   }
-  container.append(angleGroup("张力(可能的矛盾)", tension, (t) => `${t.a || ""} ↔ ${t.b || ""} : ${t.why || ""}`));
-  container.append(angleGroup("空白(概念覆盖薄)", gaps, (g) => `${g.concept || ""}(gap ${g.gap_score != null ? g.gap_score : "?"} · 核心 ${g.n_central != null ? g.n_central : "?"} 篇)`));
-  container.append(angleGroup("综合(可整合)", synthesis, (s) => `${s.concept || ""}(互补 ${s.n_complements != null ? s.n_complements : "?"} 条 · 核心 ${s.n_central != null ? s.n_central : "?"} 篇)`));
+  container.append(angleGroup("张力(可能的矛盾)", tension,
+    (t) => `${t.a || ""} ↔ ${t.b || ""} : ${t.why || ""}`, (t) => `${t.a || ""} vs ${t.b || ""}`));
+  container.append(angleGroup("空白(概念覆盖薄)", gaps,
+    (g) => `${g.concept || ""}(gap ${g.gap_score != null ? g.gap_score : "?"} · 核心 ${g.n_central != null ? g.n_central : "?"} 篇)`,
+    (g) => g.concept || ""));
+  container.append(angleGroup("综合(可整合)", synthesis,
+    (s) => `${s.concept || ""}(互补 ${s.n_complements != null ? s.n_complements : "?"} 条 · 核心 ${s.n_central != null ? s.n_central : "?"} 篇)`,
+    (s) => s.concept || ""));
 }
 
-function angleGroup(title, items, fmt) {
+let topicInputRef = null; // 出稿主题输入框(draftSection 设;角度点击填入用)
+
+function angleGroup(title, items, fmt, topicOf) {
   const sec = el("div", { class: "section" }, [el("h3", { text: `${title} (${items.length})` })]);
   if (items.length === 0) { sec.append(el("p", { class: "muted", text: "无" })); return sec; }
-  for (const it of items.slice(0, 50)) sec.append(el("div", { class: "atom", text: fmt(it) }));
+  for (const it of items.slice(0, 50)) {
+    const row = el("div", { class: "atom angle-row", text: fmt(it), title: "点击把这个角度填入下方出稿主题" });
+    row.addEventListener("click", () => {
+      const t = topicOf ? topicOf(it) : "";
+      if (!t || !topicInputRef) return;
+      topicInputRef.value = t;
+      topicInputRef.scrollIntoView({ behavior: "smooth", block: "center" });
+      topicInputRef.focus();
+    });
+    sec.append(row);
+  }
   return sec;
 }
 
@@ -65,6 +82,7 @@ function draftSection() {
   const box = el("div", { class: "card-box section" }, [el("h3", { text: "出稿(接地草稿)" })]);
   box.append(el("p", { class: "muted", text: "用所选论文 + 连接层证据生成一节草稿。会真实调用 AI,需数十秒到数分钟。" }));
   const topic = el("input", { class: "search", placeholder: "主题,如:methane adsorption in clay nanopores" });
+  topicInputRef = topic; // 角度点击填入的落点
   const papers = el("input", { class: "search", placeholder: "论文号,逗号分隔,如 S09,S108" });
   // 检索屏「送写作」的命中集种子(Wave-3 ⑤):读后即清,预填可删减
   try {
@@ -108,6 +126,15 @@ function draftSection() {
       if (job.status === "succeeded") {
         const r = job.result || {};
         status.append(el("p", { class: "muted", text: `状态:${r.status || ""} · 轮数:${r.rounds || 0}` }));
+        const copyBtn = el("button", { text: "复制全文" });
+        copyBtn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(r.draft_text || "");
+            copyBtn.textContent = "已复制 ✓";
+            setTimeout(() => { copyBtn.textContent = "复制全文"; }, 1500);
+          } catch (err) { copyBtn.textContent = "复制失败(请手动选择文本)"; }
+        });
+        status.append(copyBtn);
         status.append(el("pre", { class: "card-box", text: r.draft_text || "(空)" }));
         return;
       }
