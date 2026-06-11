@@ -152,12 +152,30 @@ async function renderDetail(view, id) {
   ].filter(Boolean);
   try {
     const d = await getJSON("/papers/" + encodeURIComponent(id) + "/elements");
-    const METHOD_FACETS = ["simulation", "measurement", "preparation", "characterization", "analysis"];
+    // 与地图论文卡同口径(全库统计背书):五类不合并、同要素去重、值智能追加
+    const dedupe = (items) => {
+      const seen = new Set();
+      return (items || []).filter((it) => {
+        const k = it.element_id || it.display_name;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    };
+    const names = (items) => dedupe(items).map((it) => {
+      const name = it.display_name || it.element_id;
+      const vals = (it.values || []).map((v) => String(v.raw || v)).filter(Boolean);
+      const extra = vals.filter((v) => !name.includes(v));
+      return name + (extra.length ? " = " + extra.join(" / ") : "");
+    });
     const by = new Map((d.groups || []).map((g) => [g.facet, g.items || []]));
-    const names = (items) => (items || []).map((it) => it.display_name || it.element_id);
     const rows = [
       tagRow("材料", names(by.get("material"))),
-      tagRow("方法", names(METHOD_FACETS.flatMap((f) => by.get(f) || []))),
+      tagRow("模拟方法", names(by.get("simulation"))),
+      tagRow("测量", names(by.get("measurement"))),
+      tagRow("表征", names(by.get("characterization"))),
+      tagRow("制备", names(by.get("preparation"))),
+      tagRow("分析", names(by.get("analysis"))),
       tagRow("条件", names(by.get("condition"))),
       tagRow("主题", names(by.get("topic"))),
     ].filter(Boolean);

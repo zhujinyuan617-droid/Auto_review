@@ -961,14 +961,23 @@ export async function render(view) {
   const METHOD_FACETS = ["simulation", "measurement", "preparation", "characterization", "analysis"];
   const FACET_SKIP = new Set(["finding", "topic", "material", ...METHOD_FACETS, "condition"]);
 
-  function chipsRow(label, chips) {
+  // 折叠词条行(全库统计:五类合并后 204/260 篇超 6 项 → 默认露 6,余下 +N 展开)
+  function chipsRow(label, chips, foldAt = 6) {
     if (!chips.length) return null;
     const wrap = el("div", { class: "map-chip-wrap" });
-    for (const c of chips) {
-      wrap.append(el("span", { class: "tag", text: c.text, title: c.tip || "" }));
+    const mk = (c) => el("span", { class: "tag", text: c.text, title: c.tip || c.text });
+    chips.slice(0, foldAt).forEach((c) => wrap.append(mk(c)));
+    if (chips.length > foldAt) {
+      const more = el("span", { class: "tag tag-more", text: `+${chips.length - foldAt}`,
+        title: "展开全部" });
+      more.addEventListener("click", () => {
+        more.remove();
+        chips.slice(foldAt).forEach((c) => wrap.append(mk(c)));
+      });
+      wrap.append(more);
     }
     return el("div", { class: "map-panel-sec" }, [
-      el("h4", { class: "map-facet-head", text: label }), wrap,
+      el("h4", { class: "map-facet-head", text: `${label}(${chips.length})` }), wrap,
     ]);
   }
 
@@ -1116,26 +1125,43 @@ export async function render(view) {
             elemBox.append(el("p", { class: "muted", text: "该篇要素未构建(到待构建区或右上角状态角标一键构建)。" }));
             return;
           }
-          const byFacet = new Map(groups.map((g) => [g.facet, g.items || []]));
-          const chip = (it, tip) => ({
-            text: (it.display_name || it.element_id)
-              + (it.values && it.values.length ? " = " + it.values.map((v) => v.raw || v).join(" / ") : ""),
-            tip: tip || String(it.quote || ""),
-          });
-          const methodChips = [];
-          for (const f of METHOD_FACETS) {
-            for (const it of byFacet.get(f) || []) methodChips.push(chip(it));
-          }
+          // 全库统计背书的渲染口径:同要素去重(~10% 论文有重复出现);
+          // "= 值"只在名字未含该值时追加(73% 条件名已嵌值);五类不再合并。
+          const dedupe = (items) => {
+            const seen = new Set();
+            return (items || []).filter((it) => {
+              const k = it.element_id || it.display_name;
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            });
+          };
+          const chip = (it, tip) => {
+            const name = it.display_name || it.element_id;
+            const vals = (it.values || []).map((v) => String(v.raw || v)).filter(Boolean);
+            const extra = vals.filter((v) => !name.includes(v));
+            return { text: name + (extra.length ? " = " + extra.join(" / ") : ""),
+                     tip: tip || String(it.quote || "") };
+          };
+          const byFacet = new Map(groups.map((g) => [g.facet, dedupe(g.items)]));
+          const row = (label, facet, tip) =>
+            chipsRow(label, (byFacet.get(facet) || []).map((it) => chip(it, tip)));
           const otherChips = [];
           for (const g of groups) {
             if (FACET_SKIP.has(g.facet)) continue;
-            for (const it of g.items || []) otherChips.push(chip(it, `${g.facet}:${it.quote || ""}`));
+            for (const it of byFacet.get(g.facet) || []) {
+              otherChips.push(chip(it, `${g.facet}:${it.quote || ""}`));
+            }
           }
           for (const sec of [
-            chipsRow("材料", (byFacet.get("material") || []).map((it) => chip(it))),
-            chipsRow("方法", methodChips),
-            chipsRow("条件", (byFacet.get("condition") || []).map((it) => chip(it))),
-            chipsRow("主题", (byFacet.get("topic") || []).map((it) => chip(it, "本库主题标签(地图分区依据)"))),
+            row("材料", "material"),
+            row("模拟方法", "simulation"),
+            row("测量", "measurement"),
+            row("表征", "characterization"),
+            row("制备", "preparation"),
+            row("分析", "analysis"),
+            row("条件", "condition"),
+            row("主题", "topic", "本库主题标签(地图分区依据)"),
             chipsRow("其他要素", otherChips),
           ]) if (sec) elemBox.append(sec);
           elemBox.append(el("p", { class: "map-side-meta",

@@ -123,6 +123,10 @@ a.back { font-size: 13px; color: #0969da; text-decoration: none; }
 .map-read-first { font-size: 11px; color: #fff; background: #2e8b6f; border-radius: 8px;
   padding: 1px 7px; margin-right: 4px; white-space: nowrap; }
 .review-tag { margin-left: 6px; background: #dafbe1; color: #1a7f37; }
+/* 词条超长截断(全库 8% 条件名 >40 字符);悬停 title 看全文 */
+.map-chip-wrap .tag, .section .tag { max-width: 300px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+.tag-more { cursor: pointer; background: #ddf4ff; color: #0969da; }
 .angle-row { cursor: pointer; }
 .angle-row:hover { background: #ddf4ff; }
 /* 检索屏(Wave-3 ⑤):命中头行 + 可点的共现行 */
