@@ -309,3 +309,24 @@ def test_paper_detail_includes_authors_and_institutions(tmp_path: Path):
     assert body["institutions"] == ["MIT"]
     body2 = client.get("/papers/S02").json()  # 无 authorship.json
     assert "authors" not in body2 and "institutions" not in body2
+
+
+def test_institution_lens_groups_by_institution_within_continent(tmp_path: Path):
+    # 用户指正:论文→机构→洲两级;同机构的点在洲内成团(互距 < 跨机构距)
+    client, cfg = _client(tmp_path)
+    for pid in ("S01", "S02", "S03", "S04"):
+        _write_card(cfg.library_dir, pid, year=2020)
+    _write_authorship(cfg.library_dir, "S01", ["elem:institution/mit"])
+    _write_authorship(cfg.library_dir, "S02", ["elem:institution/mit"])
+    _write_authorship(cfg.library_dir, "S03", ["elem:institution/harvard"])
+    _write_authorship(cfg.library_dir, "S04", ["elem:institution/harvard"])
+    _write_institutions_registry(cfg, {
+        "elem:institution/mit": "US", "elem:institution/harvard": "US"})
+    nodes = {n["id"]: n for n in client.get("/map?lens=institution").json()["nodes"]}
+    assert all(nodes[p]["cluster"] == "cont:north-america" for p in nodes)
+    assert nodes["S01"]["institution"] == "MIT"
+
+    def d(a, b):
+        return ((nodes[a]["x"] - nodes[b]["x"]) ** 2 + (nodes[a]["y"] - nodes[b]["y"]) ** 2) ** 0.5
+    assert d("S01", "S02") < d("S01", "S03")  # 同机构团内 < 跨机构
+    assert d("S03", "S04") < d("S03", "S02")

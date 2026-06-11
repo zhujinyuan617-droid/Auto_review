@@ -239,14 +239,34 @@ def _institution_lens_payload(config: AppConfig) -> dict:
     for pid in sorted(paper_insts):
         members.setdefault(labels[pid], []).append(pid)
     order_key = {pid: (years.get(pid, 9999), pid) for pid in paper_insts}
-    pos = radial_layout(members, order_key, pinned=("__unknown__",))
+    # 两级布点(用户指正:论文→机构→洲,机构层不能压扁):
+    # 外层定洲盘位置;洲内再按"主机构"跑一次径向(同机构成小团,团内仍是年轮)。
+    outer = radial_layout(members, order_key, pinned=("__unknown__",))
+    pos: dict[str, tuple[float, float]] = dict(outer)
+    for cont, pids in members.items():
+        if len(pids) < 2:
+            continue
+        cx = sum(outer[p][0] for p in pids) / len(pids)
+        cy = sum(outer[p][1] for p in pids) / len(pids)
+        rad = max(max((outer[p][0] - cx) ** 2 + (outer[p][1] - cy) ** 2
+                      for p in pids) ** 0.5, 0.02)
+        inst_groups: dict[str, list[str]] = {}
+        for p in pids:
+            inst_groups.setdefault(primary_of[p] or "__none__", []).append(p)
+        local = radial_layout(inst_groups, order_key)
+        for p in pids:
+            lx, ly = local[p]
+            pos[p] = (cx + (lx - 0.5) * 2 * rad * 0.85, cy + (ly - 0.5) * 2 * rad * 0.85)
 
     nodes = [
         {"id": pid, "x": round(pos[pid][0], 4), "y": round(pos[pid][1], 4),
          "cluster": labels[pid],
          "size": float(len(inst_papers.get(primary_of[pid], []))) if primary_of[pid] else 0.0,
          "lit": bool(paper_insts[pid]),
-         "year": years.get(pid)}
+         "year": years.get(pid),
+         "institution": ((reg.get(primary_of[pid]) or {}).get(
+             "display_name", str(primary_of[pid]).rsplit("/", 1)[-1])
+             if primary_of[pid] else None)}
         for pid in sorted(paper_insts)
     ]
     counts: dict[str, int] = {}

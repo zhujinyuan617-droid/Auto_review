@@ -483,7 +483,7 @@ export async function render(view) {
       const head = rec.title
         ? trunc(rec.title, 60) + (rec.year ? `(${rec.year})` : "")
         : n.id; // 无标题才退回编号兜底(前台一律标题,编号留在后台)
-      const sub = [rec.journal, n.lit ? null : (UNLIT_REASON[S.lens] || "未点亮")]
+      const sub = [n.institution, rec.journal, n.lit ? null : (UNLIT_REASON[S.lens] || "未点亮")]
         .filter(Boolean).join(" · ");
       showTooltip(clientX, clientY, head + (sub ? "\n" + sub : ""));
     } else if (c) {
