@@ -36,6 +36,18 @@ PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "radial-v4", "max_clust
 LENS_DF_CAP = {"topic": 0.35, "method": 0.30, "material": 0.30}  # 密核由 split 的语义分组兜底
 ARRIVAL_BATCH_GAP_MIN = 30
 UNBUILT_CLUSTER = "__unbuilt__"
+UNFACETED_CLUSTER = "__nofacet__"  # 有要素但无本镜头类别(如综述只提及不使用)
+
+
+def _papers_with_any_elements(config: AppConfig) -> set[str]:
+    if not config.elements_db.exists():
+        return set()
+    conn = sqlite3.connect(config.elements_db)
+    conn.execute("PRAGMA busy_timeout=5000")
+    try:
+        return {r[0] for r in conn.execute("SELECT DISTINCT paper_id FROM occurrences")}
+    finally:
+        conn.close()
 
 # 时间镜头已退役(Wave-3 ①:年份由区内年轮承载,首现进区面板);
 # lens=time 的后端路径保留兼容,但不再出现在枚举里。
@@ -126,14 +138,16 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
         # min_size=2:两篇的小桶是有效分组(审计点赞的 LBM/PR-EOS 小袋),只折叠纯单篇
         labels = _merge_tiny_clusters(labels, edges, min_size=2,
                                       max_size=PARAMS["max_cluster"])
+        built = _papers_with_any_elements(config)
         for pid, fs in feats.items():
-            if not fs:
-                labels[pid] = UNBUILT_CLUSTER  # 灰点(该镜头无要素)收最外圈待构建区
+            if not fs:  # 灰点:真没构建 → 待构建区;有要素但无此类 → 无此类区(如综述)
+                labels[pid] = UNFACETED_CLUSTER if pid in built else UNBUILT_CLUSTER
         members: dict[str, list[str]] = {}
         for pid in sorted(feats):
             members.setdefault(labels.get(pid, pid), []).append(pid)
         order_key = {pid: (years.get(pid, 9999), pid) for pid in feats}
-        pos = radial_layout(members, order_key)
+        pos = radial_layout(members, order_key,
+                            pinned=("__misc__", UNBUILT_CLUSTER, UNFACETED_CLUSTER))
 
     cluster_labels = name_clusters(labels, feats, idf(feats), names)
     nodes_out = [
@@ -157,6 +171,10 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
             return {"id": c, "label": "零散文献", "n": cluster_counts[c], "misc": True}
         if c == UNBUILT_CLUSTER:
             return {"id": c, "label": "待构建", "n": cluster_counts[c], "unbuilt": True}
+        if c == UNFACETED_CLUSTER:
+            word = {"method": "方法", "material": "材料", "topic": "主题"}.get(lens, "该类")
+            return {"id": c, "label": f"无{word}类要素(综述等)", "n": cluster_counts[c],
+                    "nofacet": True}
         return {"id": c, "label": cluster_labels.get(c, c), "n": cluster_counts[c]}
 
     payload = {
@@ -527,7 +545,8 @@ def _apply_meta(config: AppConfig, lens: str, payload: dict) -> dict:
         key = _members_key(members)
         c["members_key"] = key
         entry = meta.get(key)
-        if entry is None and not c.get("misc") and not c.get("unbuilt") and not c.get("nodata"):
+        if (entry is None and not c.get("misc") and not c.get("unbuilt")
+                and not c.get("nodata") and not c.get("nofacet")):
             mset = set(members)
             best, best_j = None, 0.5
             for k, e in meta.items():
@@ -587,7 +606,8 @@ def describe_clusters(config: AppConfig, lens: str, client) -> dict:
 
     todo = []
     for c in payload.get("clusters") or []:
-        if c.get("misc") or c.get("unbuilt") or c.get("nodata") or c.get("description"):
+        if (c.get("misc") or c.get("unbuilt") or c.get("nodata") or c.get("nofacet")
+                or c.get("description")):
             continue
         members = members_by_cluster.get(c["id"], [])
         todo.append({
