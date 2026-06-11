@@ -87,15 +87,23 @@ def test_cluster_label_unknown_cluster_400(tmp_path: Path):
 # ----------------------------------------------------------- descriptions ----
 
 class _DescribeFake:
-    def __init__(self):
+    def __init__(self, zh_only: bool = False):
         self.calls = 0
+        self.zh_only = zh_only
 
     def chat_json(self, messages, hint):
         self.calls += 1
-        payload = json.loads(messages[1]["content"])
-        return {"descriptions": [
-            {"cluster_id": c["cluster_id"], "sentence": f"这区研究{c['auto_label']}相关问题"}
-            for c in payload["clusters"]]}
+        payload = json.loads(messages[-1]["content"])
+        out = []
+        for c in payload["clusters"]:
+            d = {"cluster_id": c["cluster_id"],
+                 "desc_zh": f"这区研究{c['auto_label']}相关问题"}
+            if not self.zh_only:
+                d["name_zh"] = f"区名{c['cluster_id']}"
+                d["name_en"] = f"Region {c['cluster_id']}"
+                d["desc_en"] = f"Papers about {c['auto_label']}"
+            out.append(d)
+        return {"descriptions": out}
 
 
 def test_describe_clusters_generates_once_and_caches(tmp_path: Path):
@@ -107,6 +115,8 @@ def test_describe_clusters_generates_once_and_caches(tmp_path: Path):
     assert out["ai_calls"] == 1 and out["generated"] >= 1
     body = client.get("/map?lens=topic").json()
     assert any(c.get("description") for c in body["clusters"])
+    assert any(c.get("description_en") for c in body["clusters"])
+    assert any(c.get("ai_name_en") for c in body["clusters"])
     # 二跑:全部已有描述 → 零调用
     out2 = map_service.describe_clusters(cfg, "topic", fake)
     assert out2["ai_calls"] == 0 and fake.calls == 1
@@ -200,3 +210,14 @@ def test_import_batch_marker_feeds_arrivals(tmp_path: Path):
     body = client.get("/map/arrivals").json()
     ids = {e["paper_id"] for e in body["batch"]}
     assert ids == {"S04", "S05"}               # 真实批次标记优先于 mtime 启发式
+
+
+def test_describe_refills_missing_english(tmp_path: Path):
+    client, cfg = _client(tmp_path)
+    for pid in ("S01", "S02", "S03"):
+        _write_card(cfg.library_dir, pid, topic_ids=["elem:topic/a", "elem:topic/b"])
+    map_service.describe_clusters(cfg, "topic", _DescribeFake(zh_only=True))
+    out = map_service.describe_clusters(cfg, "topic", _DescribeFake())
+    assert out["ai_calls"] == 1          # 缺英文/缺区名 ≠ 已完成,会补齐重生成
+    body = client.get("/map?lens=topic").json()
+    assert any(c.get("description_en") for c in body["clusters"])

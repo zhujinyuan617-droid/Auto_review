@@ -1,5 +1,6 @@
 import { getJSON, postJSON } from "/assets/api.js";
 import { el, clear, empty, errorState, loading } from "/assets/ui.js";
+import { t } from "/assets/i18n.js";
 
 // 屏B 统计 = 分层:总览仪表盘 -> 单 facet 大图 -> 抽屉(论文+引文+共现)。
 // 路由: #/stats(总览) #/stats/<facet>(大图)。role 开关控制是否含 mentioned。
@@ -25,14 +26,14 @@ async function renderOverview(view) {
     return errorState(view, err.message, () => renderOverview(view));
   }
   clear(view);
-  view.append(el("h2", { text: `全库统计(${ov.library_papers} 篇有要素)` }), roleToggle(() => renderOverview(view)));
+  view.append(el("h2", { text: t("stats.title", { n: ov.library_papers }) }), roleToggle(() => renderOverview(view)));
   const grid = el("div", { class: "stats-grid" });
   for (const f of ov.facets) {
     const box = el("div", { class: "card-box" });
-    box.append(el("h3", { text: `${f.id}(${f.total_elements} 项)` }));
+    box.append(el("h3", { text: t("stats.facet_overview_head", { facet: f.id, n: f.total_elements }) }));
     const max = f.top.length ? f.top[0].papers : 1;
     for (const item of f.top) box.append(bar(item, max, () => { location.hash = `#/stats/${f.id}`; }));
-    box.append(el("a", { href: `#/stats/${f.id}`, text: "看全部 →" }));
+    box.append(el("a", { href: `#/stats/${f.id}`, text: t("stats.see_all") }));
     grid.append(box);
   }
   view.append(grid);
@@ -50,14 +51,14 @@ async function renderFacet(view, facet) {
   }
   clear(view);
   view.append(
-    el("p", {}, [el("a", { href: "#/stats", text: "← 总览" })]),
-    el("h2", { text: `${facet} 分布(${stats.items.length} 项)` }),
+    el("p", {}, [el("a", { href: "#/stats", text: t("stats.back") })]),
+    el("h2", { text: t("stats.facet_title", { facet, n: stats.items.length }) }),
     roleToggle(() => renderFacet(view, facet)),
   );
   const layout = el("div", { class: "elements-layout" });
   const chart = el("div", { class: "elements-results" });
   const drawer = el("div", { class: "elements-detail card-box" });
-  empty(drawer, "点左边任何一条,看论文、原文和「配套要素」。");
+  empty(drawer, t("stats.drawer_hint"));
   layout.append(chart, drawer);
   view.append(layout);
   const max = stats.items.length ? stats.items[0].papers : 1;
@@ -89,10 +90,10 @@ async function drawDrawer(drawer, facet, item) {
   }
   if (seq !== drawerSeq) return; // superseded by a newer click
   clear(drawer);
-  drawer.append(el("h3", { text: `${detail.display_name}(${detail.paper_count} 篇)` }));
-  if (detail.aliases.length) drawer.append(el("p", { class: "muted", text: "同义词:" + detail.aliases.join(" / ") }));
+  drawer.append(el("h3", { text: t("stats.drawer_head", { name: detail.display_name, n: detail.paper_count }) }));
+  if (detail.aliases.length) drawer.append(el("p", { class: "muted", text: t("stats.aliases_prefix") + detail.aliases.join(" / ") }));
 
-  drawer.append(el("h4", { text: `配套要素(这 ${co.m} 篇里还出现)` }));
+  drawer.append(el("h4", { text: t("stats.cooc_head", { n: co.m }) }));
   for (const g of co.groups) {
     drawer.append(el("p", { class: "muted", text: g.facet }));
     for (const x of g.items.slice(0, 5)) {
@@ -103,7 +104,7 @@ async function drawDrawer(drawer, facet, item) {
     }
   }
 
-  drawer.append(el("h4", { text: "论文与原文" }));
+  drawer.append(el("h4", { text: t("stats.papers_head") }));
   for (const p of detail.papers) {
     drawer.append(el("div", { class: "paper-row" }, [
       el("b", { text: (titles[p.paper_id] || p.paper_id).slice(0, 60) }),
@@ -112,7 +113,7 @@ async function drawDrawer(drawer, facet, item) {
       drawer.append(
         el("div", { class: "quote-box", text: `"${q.quote}"` }),
         el("a", { href: `#/papers/${p.paper_id}/decompose/${encodeURIComponent(q.reading_block_id)}`,
-          text: "原文段 ↗", title: "跳到拆解页并定位这一段原文" }),
+          text: t("papers.block_anchor_label"), title: t("search.block_anchor_title") }),
       );
     }
   }
@@ -138,17 +139,17 @@ function roleToggle(redraw) {
     includeMentioned = input.checked;
     redraw();
   });
-  return el("label", { class: "muted" }, [input, " 包含 mentioned(综述等仅提及)"]);
+  return el("label", { class: "muted" }, [input, t("stats.role_toggle_label")]);
 }
 
 function renderBuildOffer(view) {
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   clear(view);
   view.append(
-    el("h2", { text: "全库统计" }),
-    el("p", { text: "还没有要素索引。点下面按钮做一次全库构建(并行数在「设置」页可调,默认拉满账号并发;费用约几十元)。中途退出应用会中断;之后再点本按钮会自动续跑缺失的部分,不会重复归并。" }),
+    el("h2", { text: t("stats.title_plain") }),
+    el("p", { text: t("stats.build_offer_hint") }),
   );
-  const btn = el("button", { text: "构建要素索引(全库)" });
+  const btn = el("button", { text: t("stats.build_btn") });
   const log = el("pre", { class: "muted" });
   btn.addEventListener("click", async () => {
     btn.disabled = true;
@@ -162,7 +163,7 @@ function renderBuildOffer(view) {
             clearInterval(_pollTimer); _pollTimer = null;
             if (!location.hash.startsWith("#/stats")) return; // 用户已离开本屏,不碰别屏的 DOM
             if (s.status === "succeeded") renderOverview(view);
-            else errorState(view, "构建失败:" + s.error, () => renderBuildOffer(view));
+            else errorState(view, t("stats.build_fail_prefix") + s.error, () => renderBuildOffer(view));
           }
         } catch (err) {
           clearInterval(_pollTimer); _pollTimer = null;

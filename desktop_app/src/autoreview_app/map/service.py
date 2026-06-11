@@ -582,8 +582,9 @@ def _apply_meta(config: AppConfig, lens: str, payload: dict) -> dict:
             if entry.get("label"):
                 c["label"] = entry["label"]
                 c["label_overridden"] = True
-            if entry.get("description"):
-                c["description"] = entry["description"]
+            for f in ("description", "description_en", "ai_name_zh", "ai_name_en"):
+                if entry.get(f):
+                    c[f] = entry[f]
     return payload
 
 
@@ -604,12 +605,13 @@ def set_cluster_label(config: AppConfig, lens: str, cluster_id: str, label: str)
 
 
 _DESCRIBE_SYSTEM = (
-    "你为一张文献知识地图的各个分区写描述。给定每个分区的自动名、高频研究要素和论文标题样本,"
-    "为每区写一句中文描述(≤60字,说清这批文献共同研究什么,不要套话、不要逐篇罗列)。"
+    "你为一张文献知识地图的各个分区起名并写描述。给定每个分区的机械自动名、高频研究要素和论文标题样本,"
+    "为每区产出四样:中文区名(≤12字)、英文区名(≤6词)、中文一句描述(≤60字)、英文一句描述(≤30词)。"
+    "区名/描述要说清这批文献共同研究什么;不要套话、不要逐篇罗列;英文用该领域论文的惯用术语,不要生硬直译。"
 )
 _DESCRIBE_HINT = (
-    'Return only one JSON object: {"descriptions": [{"cluster_id": str, "sentence": str}]}. '
-    "Do not wrap the JSON in Markdown."
+    'Return only one JSON object: {"descriptions": [{"cluster_id": str, "name_zh": str, '
+    '"name_en": str, "desc_zh": str, "desc_en": str}]}. Do not wrap the JSON in Markdown.'
 )
 
 
@@ -627,8 +629,10 @@ def describe_clusters(config: AppConfig, lens: str, client) -> dict:
 
     todo = []
     for c in payload.get("clusters") or []:
-        if (c.get("misc") or c.get("unbuilt") or c.get("nodata") or c.get("nofacet")
-                or c.get("description")):
+        if c.get("misc") or c.get("unbuilt") or c.get("nodata") or c.get("nofacet"):
+            continue
+        if (c.get("description") and c.get("description_en")
+                and c.get("ai_name_zh") and c.get("ai_name_en")):
             continue
         members = members_by_cluster.get(c["id"], [])
         todo.append({
@@ -647,21 +651,26 @@ def describe_clusters(config: AppConfig, lens: str, client) -> dict:
         _DESCRIBE_HINT,
     )
     stats["ai_calls"] = 1
-    sentences = {}
+    rows: dict[str, dict] = {}
     for d in (raw.get("descriptions") or []):
-        if isinstance(d, dict) and d.get("cluster_id") and d.get("sentence"):
-            sentences[str(d["cluster_id"])] = str(d["sentence"])[:120]
+        if isinstance(d, dict) and d.get("cluster_id") and d.get("desc_zh"):
+            rows[str(d["cluster_id"])] = d
     for c in payload.get("clusters") or []:
-        s = sentences.get(c["id"])
-        if not s:
+        d = rows.get(c["id"])
+        if not d:
             continue
         members = members_by_cluster.get(c["id"], [])
         key = _members_key(members)
         entry = meta.get(key) or {"members": sorted(members)}
-        entry["description"] = s
+        entry["ai_name_zh"] = str(d.get("name_zh", ""))[:30]
+        entry["ai_name_en"] = str(d.get("name_en", ""))[:60]
+        entry["description"] = str(d["desc_zh"])[:120]       # 旧键保持=中文描述,兼容存量
+        entry["description_en"] = str(d.get("desc_en", ""))[:240]
         entry["members"] = sorted(members)
         meta[key] = entry
-        c["description"] = s
+        for f in ("ai_name_zh", "ai_name_en", "description", "description_en"):
+            if entry.get(f):
+                c[f] = entry[f]
         stats["generated"] += 1
     _save_meta(config, lens, meta)
     return {**stats, "clusters": payload.get("clusters") or []}

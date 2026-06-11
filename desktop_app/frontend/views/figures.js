@@ -1,5 +1,6 @@
 import { getJSON } from "/assets/api.js";
 import { el, clear, loading, empty, errorState } from "/assets/ui.js";
+import { t } from "/assets/i18n.js";
 
 // 图表墙(SP-Map §4b):按论文浏览 Docling 已抽取的图片;零 AI。
 // 路由:#/figures(空选)、#/figures/<paper_id> 或 #/figures?paper=<paper_id> 直达某篇。
@@ -15,15 +16,15 @@ export async function render(view, params) {
     return errorState(view, err.message, () => render(view, params));
   }
   clear(view);
-  if (papers.length === 0) return empty(view, "藏书为空 —— 先到「导入」页导入论文。");
+  if (papers.length === 0) return empty(view, t("figures.library_empty"));
 
   const byId = Object.fromEntries(papers.map((p) => [p.paper_id, p]));
   let current = null; // 当前选中的 paper_id
   let seq = 0;        // 防止快速连点时旧响应覆盖新选择
 
   view.append(
-    el("h2", { text: "图表墙" }),
-    el("p", { class: "muted", text: "左侧选一篇论文,右侧浏览它已抽取的图片;点缩略图看大图(←/→ 切换,Esc 或点遮罩关闭)。" })
+    el("h2", { text: t("figures.title") }),
+    el("p", { class: "muted", text: t("figures.hint") })
   );
 
   // ---- 骨架:左 论文列表 / 右 缩略图区(复用要素屏的两栏 class,不改 styles.css)----
@@ -33,7 +34,7 @@ export async function render(view, params) {
   layout.append(side, gridWrap);
   view.append(layout);
 
-  const searchBox = el("input", { class: "search", placeholder: "搜索标题 / 编号…", style: "max-width:none;" });
+  const searchBox = el("input", { class: "search", placeholder: t("figures.search_placeholder"), style: "max-width:none;" });
   const list = el("div");
   side.append(searchBox, list);
   searchBox.addEventListener("input", () => drawList(searchBox.value));
@@ -44,7 +45,7 @@ export async function render(view, params) {
     const rows = papers.filter(
       (p) => !f || (p.title || "").toLowerCase().includes(f) || (p.paper_id || "").toLowerCase().includes(f)
     );
-    if (rows.length === 0) { list.append(el("p", { class: "muted", text: "无匹配" })); return; }
+    if (rows.length === 0) { list.append(el("p", { class: "muted", text: t("figures.no_match") })); return; }
     for (const p of rows) {
       const row = el("div", {
         class: "paper-row",
@@ -70,7 +71,7 @@ export async function render(view, params) {
       data = await getJSON("/papers/" + encodeURIComponent(id) + "/figures");
     } catch (err) {
       if (mySeq !== seq) return;
-      if (err.code === 404) return errorState(gridWrap, "未找到论文 " + id, null);
+      if (err.code === 404) return errorState(gridWrap, t("figures.not_found", { id }), null);
       return errorState(gridWrap, err.message, () => select(id));
     }
     if (mySeq !== seq) return;
@@ -83,18 +84,18 @@ export async function render(view, params) {
     gridWrap.append(
       el("h3", { style: "margin:0 0 4px;", text: p.title || id }),
       el("p", { class: "pmeta", style: "margin:0 0 12px;" }, [
-        [p.year, p.journal].filter(Boolean).join(" · ") + (figures.length ? ` · 共 ${figures.length} 张图片 · ` : " · "),
-        el("a", { class: "back", href: "#/papers/" + encodeURIComponent(id) }, "查看论文 ↗"),
+        [p.year, p.journal].filter(Boolean).join(" · ") + (figures.length ? " · " + t("figures.count", { n: figures.length }) + " · " : " · "),
+        el("a", { class: "back", href: "#/papers/" + encodeURIComponent(id) }, t("figures.view_paper")),
       ])
     );
     if (figures.length === 0) {
-      gridWrap.append(el("p", { class: "muted", text: "该篇无可展示图片(出版社杂项已过滤)。" }));
+      gridWrap.append(el("p", { class: "muted", text: t("figures.no_figures") }));
       return;
     }
     const grid = el("div", { style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;" });
     figures.forEach((f, i) => {
       const name = f.name || f; // 兼容旧字符串形态
-      const cap = (f.caption || "") || (f.page ? `第 ${f.page} 页插图` : name);
+      const cap = (f.caption || "") || (f.page ? t("figures.page_figure", { n: f.page }) : name);
       const img = el("img", {
         src: figURL(id, name),
         loading: "lazy",
@@ -112,7 +113,7 @@ export async function render(view, params) {
       ]);
       img.addEventListener("error", () => {
         img.style.display = "none";
-        if (!cell.querySelector(".error")) cell.prepend(el("p", { class: "error", style: "margin:0;", text: "图片加载失败" }));
+        if (!cell.querySelector(".error")) cell.prepend(el("p", { class: "error", style: "margin:0;", text: t("figures.img_load_fail") }));
       });
       cell.addEventListener("click", () => openLightbox(id, figures, i));
       grid.append(cell);
@@ -123,7 +124,7 @@ export async function render(view, params) {
   drawList("");
   const want = requestedPaperId(params);
   if (want && byId[want]) select(want);
-  else empty(gridWrap, "从左侧选择一篇论文,查看其已抽取图片。");
+  else empty(gridWrap, t("figures.select_hint"));
 }
 
 // 直达参数,两种形态都认(读不出就返回 null,由调用方忽略):
@@ -167,7 +168,7 @@ export function openLightbox(paperId, figures, startIndex) {
     i = (n + figures.length) % figures.length;
     const f = figures[i];
     const name = (f && f.name) || f;
-    const cap = (f && f.caption) || (f && f.page ? `第 ${f.page} 页插图` : "");
+    const cap = (f && f.caption) || (f && f.page ? t("figures.page_figure", { n: f.page }) : "");
     img.setAttribute("src", figURL(paperId, name));
     img.setAttribute("alt", cap || name);
     caption.textContent = (cap ? cap + " · " : "") + "(" + (i + 1) + "/" + figures.length + ")";
