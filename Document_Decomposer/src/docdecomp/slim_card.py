@@ -41,12 +41,15 @@ SUBSTANTIVE_KINDS = {
 
 SLIM_SCHEMA_HINT = (
     "Return only one JSON object with keys: schema_version, paper_id, paper, "
-    "classification, summary, ai_warnings. Do not wrap in Markdown. No evidence "
-    "objects, no quotes, no per-item citations anywhere."
+    "classification, summary, authors_raw, ai_warnings. Do not wrap in Markdown. "
+    "No evidence objects, no quotes, no per-item citations anywhere."
 )
 
 
-def build_slim_prompt(reading: dict, metadata: dict, max_block_chars: int = 900) -> list[dict]:
+def build_slim_prompt(reading: dict, metadata: dict, max_block_chars: int = 900,
+                      front_matter: str = "") -> list[dict]:
+    """front_matter:首页版面原文(作者署名/机构地址所在);为空时 authors_raw 应回 []。
+    增量参数——旧调用方不传则行为不变(作者机构走 OpenAlex 批量补)。"""
     paper_id = reading["paper_id"]
     mc = metadata.get("metadata_candidates", {})
     focused = [b for b in relevant_reading_blocks(reading) if b.get("section_kind") in SUBSTANTIVE_KINDS]
@@ -62,6 +65,8 @@ def build_slim_prompt(reading: dict, metadata: dict, max_block_chars: int = 900)
         "allowed_paper_types": ["experimental", "simulation", "review", "hybrid", "other", "unknown"],
         "reading_blocks": blocks,
     }
+    if front_matter:
+        payload["front_matter_page1"] = front_matter[:6000]
     system = (
         "You build a SLIM index card from a paper's reading blocks. Its only purpose is "
         "cross-paper linking, NOT to record facts. Use only the supplied blocks. "
@@ -69,7 +74,11 @@ def build_slim_prompt(reading: dict, metadata: dict, max_block_chars: int = 900)
     )
     user = (
         "Build one slim index card (schema_version 0.3.0). Output exactly these keys: "
-        "schema_version, paper_id, paper, classification, summary, ai_warnings.\n"
+        "schema_version, paper_id, paper, classification, summary, authors_raw, ai_warnings.\n"
+        "- authors_raw: from front_matter_page1 ONLY (if absent or unreadable, return []): "
+        "[{name, is_senior, affiliations: [full institution names as printed, no addresses, "
+        "no superscript letters]}]. Names exactly as printed, no translation. is_senior=true "
+        "for the corresponding author (* or 'Corresponding'); absent markers, the last author.\n"
         "- paper: {title, doi, year, journal, paper_type}. Use metadata_candidates as hints; "
         "if its title is empty or is a journal/banner name, infer the real title from front-matter "
         "blocks. paper_type is one of the allowed types.\n"
@@ -139,6 +148,23 @@ def ensure_slim_defaults(card: dict, reading: dict, metadata: dict) -> dict:
     summ["main_findings"] = [normalize_space(x) for x in mf if normalize_space(x)] if isinstance(mf, list) else []
     summ.setdefault("methods_systems", "")
     card["summary"] = summ
+
+    # authors_raw(增量,卡片 AI 顺手抽的首页署名;无 front_matter 时为空):
+    # 只做形状清洗,名字与机构串照抄不规范化(导入兜底层负责入注册表)
+    ar = card.get("authors_raw")
+    cleaned = []
+    if isinstance(ar, list):
+        for a in ar:
+            if not isinstance(a, dict) or not normalize_space(str(a.get("name") or "")):
+                continue
+            affs = a.get("affiliations")
+            cleaned.append({
+                "name": normalize_space(str(a["name"])),
+                "is_senior": bool(a.get("is_senior")),
+                "affiliations": [normalize_space(str(x)) for x in affs
+                                 if normalize_space(str(x))] if isinstance(affs, list) else [],
+            })
+    card["authors_raw"] = cleaned
 
     if not isinstance(card.get("ai_warnings"), list):
         card["ai_warnings"] = []

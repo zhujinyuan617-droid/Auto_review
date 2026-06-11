@@ -73,10 +73,26 @@ def run_reading_stage(paper_dir: Path, client: AIClient) -> dict[str, Any]:
     return package
 
 
+def _front_matter_page1(paper_dir: Path, max_blocks: int = 30) -> str:
+    """首页版面原文(作者署名/机构所在),喂给卡片 AI 顺手抽 authors_raw。"""
+    try:
+        doc = load_json(paper_dir / "content_blocks.json")
+    except (OSError, ValueError):
+        return ""
+    out: list[str] = []
+    for b in doc.get("blocks") or []:
+        if str(b.get("page_no")) == "1" and b.get("text"):
+            out.append(str(b["text"]))
+        if len(out) >= max_blocks:
+            break
+    return "\n".join(out)[:6000]
+
+
 def run_card_stage(paper_dir: Path, client: AIClient) -> dict[str, Any]:
     reading = load_json(paper_dir / "reading_blocks.json")
     metadata = load_json(paper_dir / "metadata_candidates.json")
-    messages = build_slim_prompt(reading, metadata, 900)
+    messages = build_slim_prompt(reading, metadata, 900,
+                                 front_matter=_front_matter_page1(paper_dir))
     raw = client.chat_json(messages, SLIM_SCHEMA_HINT)
     card = ensure_slim_defaults(raw, reading, metadata)
     # Don't pollute the card schema with a "validation" key (the engine never does).
