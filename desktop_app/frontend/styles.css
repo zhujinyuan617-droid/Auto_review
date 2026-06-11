@@ -203,3 +203,4 @@ a.back { font-size: 13px; color: #0969da; text-decoration: none; }
 .map-first-seen-row { font-size: 12.5px; padding: 3px 0; }
 .map-panel-sec { margin-bottom: 10px; }
 .map-arrival-nb { padding-left: 10px; }
+.cluster-subname { font-size: 11px; opacity: .65; margin-left: 6px; }

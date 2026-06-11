@@ -1,5 +1,6 @@
 import { getJSON, postJSON, putJSON, pollJob } from "/assets/api.js";
 import { el, clear, loading, errorState, facetLabel } from "/assets/ui.js";
+import { t, getLang } from "/assets/i18n.js";
 
 // 知识地图首页(SP-Map §1/§2/§4 前端面)。
 //
@@ -11,14 +12,19 @@ import { el, clear, loading, errorState, facetLabel } from "/assets/ui.js";
 // 特写外环(Wave-2 起)= GET /map/neighbors 的共享要素 top-8(真口径,替换了
 // 首发版"同区 size top-8"的简化方案);内环仍是 /network 的 AI 判边。
 
-const LENS_NAMES = { topic: "主题", method: "方法", material: "材料", institution: "机构" };
+// 镜头名:值为词典键(topic/material/institution 复用 facet.*;method 为镜头独有键)。
+const LENS_NAMES = {
+  topic: "facet.topic", method: "map.lens.method",
+  material: "facet.material", institution: "facet.institution",
+};
+const lensName = (l) => (LENS_NAMES[l] ? t(LENS_NAMES[l]) : l);
 
 // 灰点原因按镜头说人话(spec 对方法/材料镜头的原文是「该篇要素未构建」)。
 const UNLIT_REASON = {
-  topic: "该篇无主题标签",
-  method: "该篇要素未构建",
-  material: "该篇要素未构建",
-  institution: "该篇机构信息未拉取",
+  topic: "map.unlit.topic",
+  method: "map.unlit.elements",
+  material: "map.unlit.elements",
+  institution: "map.unlit.institution",
 };
 
 // 确定性调色板:cluster 按 id 排序后轮转取色。学术系配色,与 graph.js 同风格,
@@ -31,7 +37,7 @@ const PALETTE = [
 const GREY = "#9aa4b2";
 const ACCENT = "#0969da";
 const REL_COLORS = { supports: "#2e8b6f", contradicts: "#c2502f", complements: "#3f6bb0" };
-const REL_LABELS = { supports: "支持", contradicts: "矛盾", complements: "互补" };
+const REL_LABELS = { supports: "map.rel.supports", contradicts: "map.rel.contradicts", complements: "map.rel.complements" }; // 值为词典键
 const REL_FALLBACK = "#8a7aa8";
 
 const STATE_KEY = "mapState";              // sessionStorage:{lens, scale, panX, panY, selectedId}
@@ -40,6 +46,27 @@ const ARRIVE_KEY = "arriveAfterImport";    // 导入闭环标志(import.js 置�
 function trunc(s, n) {
   s = String(s || "");
   return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+// 区名显示优先级(spec map §11.3):人工名(单语原样)> AI 双语名(机械自动名退小字)> 机械自动名。
+// 特殊区(零散/待构建/无此类/缺数据/洲)按后端 flag 或 id 前缀走词典。
+function clusterDisplay(c, lens) {
+  if (c.label_overridden) return { main: c.label, sub: "" };
+  if (c.misc) return { main: t("map.cluster.misc"), sub: "" };
+  if (c.unbuilt) return { main: t("map.cluster.unbuilt"), sub: "" };
+  if (c.nodata) return { main: t("map.cluster.nodata"), sub: "" };
+  if (c.nofacet) return { main: t("map.cluster.nofacet." + lens), sub: "" };
+  if (typeof c.id === "string" && c.id.startsWith("cont:")) {
+    return { main: t("map.continent." + c.id.slice(5)), sub: "" };
+  }
+  const ai = getLang() === "en" ? c.ai_name_en : c.ai_name_zh;
+  if (ai) return { main: ai, sub: c.label };
+  return { main: c.label, sub: "" };
+}
+
+// 区描述:EN 模式优先英文,缺则回落中文(maybeDescribe 会按当前语言补齐)。
+function clusterDesc(c) {
+  return (getLang() === "en" ? (c.description_en || c.description) : c.description) || "";
 }
 
 // 区描述(POST /map/describe)每镜头每次会话只发一次;pending 供面板显示"生成中"。
@@ -104,17 +131,17 @@ export async function render(view) {
   const stage = el("div", { class: "map-stage" });
   const canvas = el("canvas", { class: "map-canvas" });
 
-  const lensSel = el("select", { class: "map-lens", title: "切换镜头(分区依据)" });
+  const lensSel = el("select", { class: "map-lens", title: t("map.lens_select_title") });
   for (const l of payload.lenses || Object.keys(LENS_NAMES)) {
-    lensSel.append(el("option", { value: l }, LENS_NAMES[l] || l));
+    lensSel.append(el("option", { value: l }, lensName(l)));
   }
   lensSel.value = payload.lens || "topic";
-  const relayoutBtn = el("button", { class: "map-btn", text: "重新布局", title: "全量重排当前镜头(老点会动)" });
+  const relayoutBtn = el("button", { class: "map-btn", text: t("map.relayout"), title: t("map.relayout_title") });
   const topleft = el("div", { class: "map-overlay map-topleft" }, [lensSel, relayoutBtn]);
 
   const searchInput = el("input", {
     class: "map-search",
-    placeholder: "搜标题关键词 / 要素名;Esc 清除",
+    placeholder: t("map.search_placeholder"),
   });
   const searchChip = el("span", { class: "map-chip", hidden: "" });
   const searchDrop = el("div", { class: "map-search-drop", hidden: "" });
@@ -125,28 +152,28 @@ export async function render(view) {
   const statusBadge = el("div", { class: "map-overlay map-status" });
   const nPapers = coverage ? coverage.papers : (payload.nodes || []).length;
   if (coverage) {
-    statusBadge.textContent = `${nPapers} 篇 · 要素 ${coverage.with_elements}/${coverage.papers}`;
+    statusBadge.textContent = t("map.status_coverage", { n: nPapers, built: coverage.with_elements, total: coverage.papers });
     if (coverage.with_elements < coverage.papers) {
       statusBadge.classList.add("map-status-action");
-      statusBadge.title = "有论文还没生成研究要素,点击一键补全";
+      statusBadge.title = t("map.status_fill_title");
       statusBadge.addEventListener("click", () =>
         showBuildPanel(coverage.papers - coverage.with_elements));
     }
   } else {
-    statusBadge.textContent = `${nPapers} 篇 · 要素未构建`;
+    statusBadge.textContent = t("map.status_unbuilt", { n: nPapers });
     statusBadge.classList.add("map-status-action");
-    statusBadge.title = "点击构建要素索引(方法/材料镜头与检索都靠它)";
+    statusBadge.title = t("map.status_build_title");
     statusBadge.addEventListener("click", () => showBuildPanel(null));
   }
 
   const arrivalsBadge = el("button", { class: "map-arrivals", hidden: "" });
   if (batch.length) {
     arrivalsBadge.hidden = false;
-    arrivalsBadge.textContent = `${batch.length} 篇新文献着陆 →`;
+    arrivalsBadge.textContent = t("map.arrivals_badge", { n: batch.length });
   }
 
   const sideTitle = el("div", { class: "map-side-title" });
-  const sideClose = el("button", { class: "map-side-close", text: "×", title: "关闭" });
+  const sideClose = el("button", { class: "map-side-close", text: "×", title: t("map.close") });
   const sideBody = el("div", { class: "map-side-body" });
   const side = el("aside", { class: "map-side" }, [
     el("div", { class: "map-side-head" }, [sideTitle, sideClose]),
@@ -219,7 +246,7 @@ export async function render(view) {
     S.dimSet = null; S.selectedId = null; S.haloId = null; S.hover = null;
     hideChip();
     emptyMsg.hidden = nodes.length > 0;
-    if (!nodes.length) emptyMsg.textContent = "库为空 —— 先到「读 → 导入」添加论文。";
+    if (!nodes.length) emptyMsg.textContent = t("map.empty_library");
     fitAll(false);
     S.dirty = true;
   }
@@ -436,7 +463,9 @@ export async function render(view) {
       const hovered = S.hover && S.hover.type === "cluster" && S.hover.cluster === c;
       // 待构建区的名字是行动入口(点进去一键构建),不论面积大小都画
       if (area < 2200 && !hovered && !c.unbuilt) continue;
-      const labelText = c.unbuilt ? `待构建 ${c.members.length} 篇 · 点击构建` : c.label;
+      const labelText = c.unbuilt
+        ? t("map.canvas_unbuilt", { n: c.members.length })
+        : clusterDisplay(c, S.lens).main; // 画布只画主名;机械名小字画布上会糊,面板里可见
       const px = Math.max(12, Math.min(19, 10 + Math.sqrt(c.members.length) * 1.6));
       ctx.font = `700 ${px}px 'Segoe UI','Microsoft YaHei',sans-serif`;
       const w = ctx.measureText(labelText).width;
@@ -553,19 +582,20 @@ export async function render(view) {
     if (n) {
       const rec = titles[n.id] || {};
       const head = rec.title
-        ? trunc(rec.title, 60) + (rec.year ? `(${rec.year})` : "")
+        ? trunc(rec.title, 60) + (rec.year ? t("map.year_suffix", { year: rec.year }) : "")
         : n.id; // 无标题才退回编号兜底(前台一律标题,编号留在后台)
       const unlitReason = n.cluster === "__nofacet__"
-        ? "无此类要素(如综述只提及不使用)" : (UNLIT_REASON[S.lens] || "未点亮");
+        ? t("map.unlit.nofacet") : t(UNLIT_REASON[S.lens] || "map.unlit.default");
       const sub = [n.institution, rec.journal, n.lit ? null : unlitReason]
         .filter(Boolean).join(" · ");
       showTooltip(clientX, clientY, head + (sub ? "\n" + sub : ""));
     } else if (S.hover && S.hover.type === "inst") {
       const g2 = S.hover.group;
-      showTooltip(clientX, clientY, `${g2.name} · ${g2.members.length} 篇(机构团)`);
+      showTooltip(clientX, clientY, t("map.tooltip_inst", { name: g2.name, n: g2.members.length }));
     } else if (c) {
+      const desc = clusterDesc(c);
       showTooltip(clientX, clientY,
-        `${c.label} · ${c.members.length} 篇${c.description ? "\n" + c.description : ""}`);
+        `${clusterDisplay(c, S.lens).main} · ${t("map.papers_count", { n: c.members.length })}${desc ? "\n" + desc : ""}`);
     } else {
       hideTooltip();
     }
@@ -589,26 +619,29 @@ export async function render(view) {
   }
 
   function showArrivals() {
-    openPanel(`新文献着陆(${batch.length} 篇)`, (body) => {
+    openPanel(t("map.arrivals_title", { n: batch.length }), (body) => {
       for (const a of batch) {
+        // 着陆区是 topic 镜头口径(后端):仅 topic 镜头下才查区对象拿双语名,其余镜头退回后端标签
+        const landedC = S.lens === "topic" ? S.clusterById.get(a.cluster) : null;
+        const landedName = landedC ? clusterDisplay(landedC, S.lens).main : (a.cluster_label || a.cluster || "?");
         const head = el("div", {}, [
           el("b", { text: paperLabel(a.paper_id, 56) }),
           el("div", { class: "map-side-meta", text: a.isolated
-            ? "⚠ 空白地带(与现有库关联弱)"
-            : `→ 落入「${a.cluster_label || a.cluster || "?"}」` }),
+            ? t("map.arrival_isolated")
+            : t("map.arrival_landed", { name: landedName }) }),
         ]);
         const row = el("div", { class: "map-row" }, [
           head,
           a.neighbors && a.neighbors.length
             ? el("div", { class: "map-side-meta" }, [
-                "最近邻:",
+                t("map.nearest_neighbors"),
                 ...a.neighbors.map((x) => el("div", { class: "map-arrival-nb", text: "· " + paperLabel(x.paper_id, 32) })),
               ])
             : null,
         ]);
         row.addEventListener("click", () => {
           const n = S.byId.get(a.paper_id);
-          if (!n) return showToast(`当前镜头里找不到「${paperLabel(a.paper_id, 32)}」`);
+          if (!n) return showToast(t("map.not_in_lens", { name: paperLabel(a.paper_id, 32) }));
           S.selectedId = a.paper_id;
           S.haloId = a.paper_id; // 呼吸光圈(CSS 动画)
           focusNode(n);
@@ -623,12 +656,14 @@ export async function render(view) {
   // ---- 区面板标题行:区名 +「人工」徽标 +「改名」按钮(misc/时间分带不可改名) ----
   function regionTitle(c) {
     clear(sideTitle);
-    sideTitle.append(document.createTextNode(`${c.label}(${c.members.length} 篇)`));
+    const disp = clusterDisplay(c, S.lens);
+    sideTitle.append(document.createTextNode(disp.main + t("map.papers_count_paren", { n: c.members.length })));
+    if (disp.sub) sideTitle.append(el("span", { class: "cluster-subname", text: disp.sub }));
     if (c.label_overridden) {
-      sideTitle.append(el("span", { class: "map-badge-human", text: "人工", title: "人工命名,永久优先" }));
+      sideTitle.append(el("span", { class: "map-badge-human", text: t("map.badge_human"), title: t("map.badge_human_title") }));
     }
     if (S.hasBackendClusters && !c.misc && !c.unbuilt && !c.nodata) {
-      const btn = el("button", { class: "map-rename-btn", text: "改名", title: "为这个区起个永久名字(优先于自动命名)" });
+      const btn = el("button", { class: "map-rename-btn", text: t("map.rename"), title: t("map.rename_title") });
       btn.addEventListener("click", () => renameUI(c));
       sideTitle.append(btn);
     }
@@ -637,12 +672,12 @@ export async function render(view) {
   function renameUI(c) {
     clear(sideTitle);
     const input = el("input", { class: "map-rename-input", value: c.label });
-    const ok = el("button", { class: "map-rename-btn", text: "确定" });
-    const cancel = el("button", { class: "map-rename-btn", text: "取消" });
+    const ok = el("button", { class: "map-rename-btn", text: t("map.ok") });
+    const cancel = el("button", { class: "map-rename-btn", text: t("map.cancel") });
     cancel.addEventListener("click", () => regionTitle(c));
     ok.addEventListener("click", async () => {
       const label = input.value.trim();
-      if (!label) return showToast("区名不能为空");
+      if (!label) return showToast(t("map.rename_empty"));
       ok.disabled = true; cancel.disabled = true;
       try {
         await putJSON("/map/cluster-label", { lens: S.lens, cluster_id: String(c.id), label });
@@ -650,9 +685,9 @@ export async function render(view) {
         c.label_overridden = true;
         regionTitle(c);
         S.dirty = true; // 地图上的区名同步重画
-        showToast("已改名(人工命名,永久优先)");
+        showToast(t("map.rename_done"));
       } catch (err) {
-        showToast("改名失败:" + err.message);
+        showToast(t("map.rename_fail") + err.message);
         ok.disabled = false; cancel.disabled = false;
       }
     });
@@ -670,18 +705,21 @@ export async function render(view) {
   function fillRegionDesc(c, slot) {
     clear(slot);
     if (c.misc) return;
-    if (c.description) {
-      slot.append(el("span", { text: c.description }), el("span", { class: "map-desc-tag", text: "AI 生成" }));
+    const desc = clusterDesc(c);
+    if (desc) {
+      slot.append(el("span", { text: desc }), el("span", { class: "map-desc-tag", text: t("map.desc_ai_tag") }));
     } else if (describePending.has(S.lens)) {
-      slot.append(el("span", { class: "map-desc-tag", text: "区描述生成中…" }));
+      slot.append(el("span", { class: "map-desc-tag", text: t("map.desc_pending") }));
     }
   }
 
-  // 进入镜头后:有区缺描述 → 后台静默批量生成(每镜头每次会话只发一次,不阻塞渲染)。
+  // 进入镜头后:有区缺「当前语言」的描述 → 后台静默批量生成(每镜头每次会话只发一次,
+  // 不阻塞渲染)。EN 模式看 description_en——存量库只有中文描述时,英文也要补。
   function maybeDescribe() {
     const lens = S.lens;
     if (!S.hasBackendClusters || describedLenses.has(lens)) return;
-    if (!S.clusters.some((c) => !c.misc && !c.description && c.members.length)) return;
+    const missingDesc = (c) => (getLang() === "en" ? !c.description_en : !c.description);
+    if (!S.clusters.some((c) => !c.misc && missingDesc(c) && c.members.length)) return;
     describedLenses.add(lens);
     describePending.add(lens);
     postJSON(`/map/describe?lens=${encodeURIComponent(lens)}`, {})
@@ -690,8 +728,12 @@ export async function render(view) {
         const fresh = new Map((resp.clusters || []).map((rc) => [rc.id, rc]));
         for (const c of S.clusters) {
           const rc = fresh.get(c.id);
-          if (rc && rc.description) c.description = rc.description;
+          if (!rc) continue;
+          for (const k of ["description", "description_en", "ai_name_zh", "ai_name_en"]) {
+            if (rc[k]) c[k] = rc[k];
+          }
         }
+        S.dirty = true; // AI 区名可能刚生成:画布区名要重画
         if (S.regionPanel) fillRegionDesc(S.regionPanel.cluster, S.regionPanel.slot);
       })
       .catch(() => { /* 描述是锦上添花:失败静默(无 key 时后端也只回 generated=0) */ })
@@ -705,8 +747,8 @@ export async function render(view) {
   //      只看本区论文用到的要素,各自在库内首现于何年。折叠 + 展开才拉数据 ----
   function firstSeenSection(c) {
     const det = el("details", { class: "map-panel-sec" });
-    det.append(el("summary", { class: "map-facet-head", text: "本区工具的进场时间线" }));
-    const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
+    det.append(el("summary", { class: "map-facet-head", text: t("map.first_seen_title") }));
+    const slot = el("div", {}, [el("p", { class: "muted", text: t("common.loading") })]);
     det.append(slot);
     let loaded = false;
     det.addEventListener("toggle", () => {
@@ -716,12 +758,12 @@ export async function render(view) {
         .then((d) => {
           clear(slot);
           const list = d.elements || [];
-          if (!list.length) return slot.append(el("p", { class: "muted", text: "本区论文没有可定年的要素。" }));
+          if (!list.length) return slot.append(el("p", { class: "muted", text: t("map.first_seen_empty") }));
           for (const e2 of list) {
             slot.append(el("div", {
               class: "map-first-seen-row",
-              text: `${e2.first_year} · ${e2.name}(库内共 ${e2.papers_total} 篇在用)`,
-              title: `库内首现于 ${paperLabel(e2.first_paper, 60)}`,
+              text: t("map.first_seen_row", { year: e2.first_year, name: e2.name, n: e2.papers_total }),
+              title: t("map.first_seen_tip", { title: paperLabel(e2.first_paper, 60) }),
             }));
           }
         })
@@ -729,7 +771,7 @@ export async function render(view) {
           clear(slot);
           slot.append(el("p", {
             class: "muted",
-            text: err.code === 503 ? "要素索引未构建(点右上角状态角标一键构建)。" : "首现数据加载失败:" + err.message,
+            text: err.code === 503 ? t("map.need_index") : t("map.first_seen_fail") + err.message,
           }));
         });
     });
@@ -741,7 +783,7 @@ export async function render(view) {
     const box = el("div", { class: "map-panel-sec" }, [
       el("h4", { class: "map-facet-head", text: heading }),
     ]);
-    const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
+    const slot = el("div", {}, [el("p", { class: "muted", text: t("common.loading") })]);
     box.append(slot);
     getJSON(url)
       .then((d) => {
@@ -761,27 +803,27 @@ export async function render(view) {
       .catch((err) => {
         clear(slot);
         slot.append(el("p", { class: "muted", text: err.code === 503
-          ? "要素索引未构建(点右上角状态角标一键构建)。"
-          : "要素画像加载失败:" + err.message }));
+          ? t("map.need_index")
+          : t("map.profile_fail") + err.message }));
       });
     return box;
   }
 
   function institutionSection(instId) {
-    return facetProfileSection("该机构的研究面貌",
+    return facetProfileSection(t("map.inst_profile_title"),
       `/map/institution-elements?id=${encodeURIComponent(instId)}`,
-      "暂无要素数据(该机构论文的要素未构建)。");
+      t("map.inst_profile_empty"));
   }
 
   // 五大洲面板:本洲高产机构榜,每行 <details> 展开才拉该机构的要素画像
   function continentInstitutionsSection(c) {
     const box = el("div", { class: "map-panel-sec" }, [
-      el("h4", { class: "map-facet-head", text: "本洲高产机构(展开看研究面貌)" }),
+      el("h4", { class: "map-facet-head", text: t("map.continent_inst_title") }),
     ]);
     for (const inst of c.top_institutions) {
       const det = el("details");
       det.append(el("summary", {}, [
-        inst.name, el("span", { class: "map-side-meta", text: ` ×${inst.papers} 篇` }),
+        inst.name, el("span", { class: "map-side-meta", text: " ×" + t("map.papers_count", { n: inst.papers }) }),
       ]));
       let loaded = false;
       det.addEventListener("toggle", () => {
@@ -798,9 +840,9 @@ export async function render(view) {
   // 材料 → 方法 → 主题;单篇专属折叠成一行计数(condition/finding 后端已撤出)。
   function regionElementsSection(c) {
     const box = el("div", { class: "map-panel-sec" }, [
-      el("h4", { class: "map-facet-head", text: "本区共性(≥2 篇共用的要素)" }),
+      el("h4", { class: "map-facet-head", text: t("map.region_common_title") }),
     ]);
-    const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
+    const slot = el("div", {}, [el("p", { class: "muted", text: t("common.loading") })]);
     box.append(slot);
     getJSON(`/map/region-elements?lens=${encodeURIComponent(S.lens)}&cluster=${encodeURIComponent(c.id)}`)
       .then((d) => {
@@ -816,25 +858,25 @@ export async function render(view) {
         const methods = [];
         for (const f of METHOD_FACETS) methods.push(...(facets[f] || []));
         methods.sort((a, b) => b.papers - a.papers);
-        row("材料", facets.material);
-        row("方法", methods);
-        row("主题", facets.topic);
+        row(facetLabel("material"), facets.material);
+        row(t("map.facet_method_group"), methods);
+        row(facetLabel("topic"), facets.topic);
         for (const f of Object.keys(facets)) {
           if (f === "material" || f === "topic" || METHOD_FACETS.includes(f)) continue;
           row(facetLabel(f), facets[f]);
         }
         if (!slot.childNodes.length) {
-          slot.append(el("p", { class: "muted", text: "本区没有 ≥2 篇共用的要素(成员各做各的,靠主题相聚)。" }));
+          slot.append(el("p", { class: "muted", text: t("map.region_common_empty") }));
         }
         if (d.singles) {
           slot.append(el("p", { class: "map-side-meta",
-            text: `另有 ${d.singles} 项仅单篇出现的要素——点下方成员逐篇看。` }));
+            text: t("map.region_singles", { n: d.singles }) }));
         }
       })
       .catch((err) => {
         clear(slot);
         slot.append(el("p", { class: "muted", text: err.code === 503
-          ? "要素索引未构建(点右上角状态角标一键构建)。" : "要素画像加载失败:" + err.message }));
+          ? t("map.need_index") : t("map.profile_fail") + err.message }));
       });
     return box;
   }
@@ -855,7 +897,7 @@ export async function render(view) {
       const years = c.members.map((n) => n.year).filter((y) => y != null);
       if (years.length) {
         body.append(el("div", { class: "map-side-meta",
-          text: `年代跨度 ${Math.min(...years)}–${Math.max(...years)}(区内年轮:靠区心更老,靠区缘更新)` }));
+          text: t("map.year_span", { min: Math.min(...years), max: Math.max(...years) }) }));
       }
       if (!c.misc && !c.nodata && S.hasBackendClusters) body.append(firstSeenSection(c));
       // 机构镜头(Wave-3 ④ 五大洲):本洲高产机构,每行展开看"机构×要素"研究面貌
@@ -864,7 +906,7 @@ export async function render(view) {
       }
       if (c.nodata) {
         body.append(el("p", { class: "muted",
-          text: "这些论文还没有机构信息(作者机构未拉取,或机构国别未能识别)。" }));
+          text: t("map.nodata_hint") }));
       }
       // 成员列表 = 阅读路线本身(原"阅读路线"按钮的口径并入):
       // 综述优先 → 关联紧密度(size)降序;第一篇给"从这篇读起"标记。
@@ -872,15 +914,15 @@ export async function render(view) {
       const ordered = c.members.slice().sort((a, b) =>
         (isReview(b.id) - isReview(a.id)) || ((b.size || 0) - (a.size || 0)));
       body.append(el("div", { class: "map-side-meta",
-        text: "成员(按建议阅读顺序:综述优先,其次与同区关联最紧的)" }));
+        text: t("map.members_order") }));
       ordered.forEach((n, i) => {
         const rec = titles[n.id] || {};
         const row = el("div", { class: "map-row" }, [
           el("div", {}, [
-            i === 0 ? el("span", { class: "map-read-first", text: "从这篇读起 " }) : null,
+            i === 0 ? el("span", { class: "map-read-first", text: t("map.read_first") }) : null,
             el("b", { text: paperLabel(n.id, 70) }),
-            isReview(n.id) ? el("span", { class: "map-side-meta", text: " (综述)" }) : null,
-            n.lit ? null : el("span", { class: "map-side-meta", text: " (未点亮)" }),
+            isReview(n.id) ? el("span", { class: "map-side-meta", text: t("map.tag_review") }) : null,
+            n.lit ? null : el("span", { class: "map-side-meta", text: t("map.tag_unlit") }),
           ]),
           el("div", { class: "map-side-meta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
         ]);
@@ -897,7 +939,7 @@ export async function render(view) {
     const log = el("pre", { class: "muted map-build-log" });
     btn.addEventListener("click", async () => {
       btn.disabled = true;
-      btn.textContent = "构建中…(可离开本屏,任务在后台继续)";
+      btn.textContent = t("map.building");
       try {
         const { job_id } = await postJSON("/elements/bootstrap", {});
         const job = await pollJob(job_id, {
@@ -906,17 +948,17 @@ export async function render(view) {
           onTick: (j) => { log.textContent = (j.progress || []).slice(-6).join("\n"); },
         });
         if (job.status === "succeeded") {
-          showToast("构建完成,刷新地图…");
+          showToast(t("map.build_done"));
           render(view); // 重新拉 /map:要素集指纹已变,灰点自动归位
         } else if (job.status === "detached") {
           // 用户已切去别屏:任务继续在后台跑,不打扰
         } else {
-          showToast("构建未完成:" + (job.error || job.status));
+          showToast(t("map.build_incomplete") + (job.error || job.status));
           btn.disabled = false;
           btn.textContent = btnText;
         }
       } catch (err) {
-        showToast("构建启动失败:" + err.message);
+        showToast(t("map.build_start_fail") + err.message);
         btn.disabled = false;
         btn.textContent = btnText;
       }
@@ -925,11 +967,11 @@ export async function render(view) {
   }
 
   function showBuildPanel(missing) {
-    openPanel("构建要素索引", (body) => {
+    openPanel(t("map.build_panel_title"), (body) => {
       body.append(el("p", { class: "muted", text: missing == null
-        ? "整库还没有要素索引。构建后,方法/材料镜头、要素检索、区面板画像才有数据(可中断,下次续跑缺失部分)。"
-        : `还有 ${missing} 篇没有研究要素。一键补全(增量:只跑缺失的,不重复花钱)。` }));
-      const { btn, log } = buildControls("开始构建");
+        ? t("map.build_intro_all")
+        : t("map.build_intro_missing", { n: missing }) }));
+      const { btn, log } = buildControls(t("map.build_start"));
       body.append(el("div", { class: "map-paper-actions" }, [btn]), log);
     });
   }
@@ -937,11 +979,9 @@ export async function render(view) {
   // ---- 待构建区面板(Wave-3 ①):解释 + 一键增量构建 + 成员清单 ----
   function showUnbuilt(c) {
     focusCluster(c);
-    openPanel(`待构建(${c.members.length} 篇)`, (body) => {
-      body.append(el("p", { class: "muted", text:
-        `这 ${c.members.length} 篇的研究要素还没有生成,所以暂时进不了任何分区。` +
-        "点下面按钮一键构建(增量,只补缺的);完成后这些点会自动落进对应的区。" }));
-      const { btn, log } = buildControls(`一键构建要素(${c.members.length} 篇)`);
+    openPanel(t("map.unbuilt_title", { n: c.members.length }), (body) => {
+      body.append(el("p", { class: "muted", text: t("map.unbuilt_hint", { n: c.members.length }) }));
+      const { btn, log } = buildControls(t("map.build_btn_n", { n: c.members.length }));
       body.append(el("div", { class: "map-paper-actions" }, [btn]), log);
       for (const n of c.members) {
         const rec = titles[n.id] || {};
@@ -969,7 +1009,7 @@ export async function render(view) {
     chips.slice(0, foldAt).forEach((c) => wrap.append(mk(c)));
     if (chips.length > foldAt) {
       const more = el("span", { class: "tag tag-more", text: `+${chips.length - foldAt}`,
-        title: "展开全部" });
+        title: t("map.expand_all") });
       more.addEventListener("click", () => {
         more.remove();
         chips.slice(foldAt).forEach((c) => wrap.append(mk(c)));
@@ -977,7 +1017,7 @@ export async function render(view) {
       wrap.append(more);
     }
     return el("div", { class: "map-panel-sec" }, [
-      el("h4", { class: "map-facet-head", text: `${label}(${chips.length})` }), wrap,
+      el("h4", { class: "map-facet-head", text: t("map.count_paren", { label, n: chips.length }) }), wrap,
     ]);
   }
 
@@ -999,10 +1039,10 @@ export async function render(view) {
   }
 
   function showInstGroup(g) {
-    openPanel(`${g.name}(${g.members.length} 篇)`, (body) => {
+    openPanel(g.name + t("map.papers_count_paren", { n: g.members.length }), (body) => {
       const iid = g.members[0] && g.members[0].institution_id;
       if (iid) body.append(institutionSection(iid));
-      const slot = el("div", {}, [el("p", { class: "muted", text: "成员加载中…" })]);
+      const slot = el("div", {}, [el("p", { class: "muted", text: t("map.members_loading") })]);
       body.append(slot);
       paperGroupMap().then((pg) => {
         clear(slot);
@@ -1017,7 +1057,7 @@ export async function render(view) {
         for (const k of keys) {
           const ms = byGroup.get(k).sort((a, b) => (a.year || 9999) - (b.year || 9999));
           slot.append(el("h4", { class: "map-facet-head",
-            text: k ? `${k} 组(${ms.length} 篇)` : `其他成员(${ms.length} 篇)` }));
+            text: k ? t("map.group_head", { name: k, n: ms.length }) : t("map.group_other", { n: ms.length }) }));
           for (const n of ms) {
             const rec = titles[n.id] || {};
             const row = el("div", { class: "map-row" }, [
@@ -1042,11 +1082,11 @@ export async function render(view) {
     openPanel(rec.title ? trunc(rec.title, 90) : n.id, (body) => {
       const meta = [rec.year, rec.journal].filter(Boolean).join(" · ");
       if (meta) body.append(el("div", { class: "map-side-meta", text: meta }));
-      const b1 = el("button", { class: "map-btn", text: "进拆解页" });
+      const b1 = el("button", { class: "map-btn", text: t("map.btn_decompose") });
       b1.addEventListener("click", () => { location.hash = `#/papers/${n.id}/decompose`; });
-      const b2 = el("button", { class: "map-btn", text: "打开 PDF" });
+      const b2 = el("button", { class: "map-btn", text: t("map.btn_pdf") });
       b2.addEventListener("click", () => window.open(`/papers/${encodeURIComponent(n.id)}/pdf`, "_blank"));
-      const b3 = el("button", { class: "map-btn", text: "关系特写" });
+      const b3 = el("button", { class: "map-btn", text: t("map.btn_closeup") });
       b3.addEventListener("click", () => openCloseup(n.id));
       body.append(el("div", { class: "map-paper-actions" }, [b1, b2, b3]));
 
@@ -1057,16 +1097,16 @@ export async function render(view) {
         .then((p) => {
           // 作者(★资深)与机构(与详情页同口径)
           if ((p.authors || []).length) {
-            aboutBox.append(el("div", { class: "map-side-meta", text: "作者:"
-              + p.authors.map((a) => a.name + (a.is_senior ? "★" : "")).join("、") }));
+            aboutBox.append(el("div", { class: "map-side-meta", text: t("map.authors_label")
+              + p.authors.map((a) => a.name + (a.is_senior ? "★" : "")).join(t("map.enum_comma")) }));
           }
           if ((p.institutions || []).length) {
             aboutBox.append(el("div", { class: "map-side-meta",
-              text: "机构:" + p.institutions.join(" · ") }));
+              text: t("map.institutions_label") + p.institutions.join(" · ") }));
           }
           if (p.objective) {
             aboutBox.append(el("div", { class: "map-panel-sec" }, [
-              el("h4", { class: "map-facet-head", text: "这篇做什么" }),
+              el("h4", { class: "map-facet-head", text: t("map.paper_objective") }),
               el("p", { class: "map-about", text: p.objective }),
             ]));
           }
@@ -1075,7 +1115,7 @@ export async function render(view) {
             const ul = el("ul", { class: "map-findings" });
             for (const f of findings) ul.append(el("li", { text: f }));
             aboutBox.append(el("div", { class: "map-panel-sec" }, [
-              el("h4", { class: "map-facet-head", text: "主要发现" }), ul,
+              el("h4", { class: "map-facet-head", text: t("map.paper_findings") }), ul,
             ]));
           }
         })
@@ -1101,12 +1141,12 @@ export async function render(view) {
           });
           const sec = el("div", { class: "map-panel-sec" }, [
             el("h4", { class: "map-facet-head",
-              text: `图表(${figs.length} 张 · 点开后可左右翻看全部)` }),
+              text: t("map.figures_head", { n: figs.length }) }),
             wrap,
           ]);
           if (figs.length > 9) {
             const more = el("a", { href: `#/papers/${n.id}`, class: "map-fig-more",
-              text: `在详情页看全部 ${figs.length} 张 →` });
+              text: t("map.figures_more", { n: figs.length }) });
             sec.append(more);
           }
           figBox.append(sec);
@@ -1115,14 +1155,14 @@ export async function render(view) {
 
       // 3) 材料 → 方法 → 条件 → 主题:干净词条(引语在拆解页带原文锚点,不在卡上拖半句)
       const elemBox = el("div");
-      elemBox.append(el("p", { class: "muted", text: "要素加载中…" }));
+      elemBox.append(el("p", { class: "muted", text: t("map.elements_loading") }));
       body.append(elemBox);
       getJSON(`/papers/${encodeURIComponent(n.id)}/elements`)
         .then((d) => {
           clear(elemBox);
           const groups = d.groups || [];
           if (!groups.length) {
-            elemBox.append(el("p", { class: "muted", text: "该篇要素未构建(到待构建区或右上角状态角标一键构建)。" }));
+            elemBox.append(el("p", { class: "muted", text: t("map.paper_elements_unbuilt") }));
             return;
           }
           // 全库统计背书的渲染口径:同要素去重(~10% 论文有重复出现);
@@ -1150,26 +1190,26 @@ export async function render(view) {
           for (const g of groups) {
             if (FACET_SKIP.has(g.facet)) continue;
             for (const it of byFacet.get(g.facet) || []) {
-              otherChips.push(chip(it, `${facetLabel(g.facet)}:${it.quote || ""}`));
+              otherChips.push(chip(it, t("map.facet_quote_tip", { facet: facetLabel(g.facet), quote: it.quote || "" })));
             }
           }
           for (const sec of [
-            row("材料", "material"),
-            row("模拟方法", "simulation"),
-            row("测量", "measurement"),
-            row("表征", "characterization"),
-            row("制备", "preparation"),
-            row("分析", "analysis"),
-            row("条件", "condition"),
-            row("主题", "topic", "本库主题标签(地图分区依据)"),
-            chipsRow("其他要素", otherChips),
+            row(facetLabel("material"), "material"),
+            row(facetLabel("simulation"), "simulation"),
+            row(facetLabel("measurement"), "measurement"),
+            row(facetLabel("characterization"), "characterization"),
+            row(facetLabel("preparation"), "preparation"),
+            row(facetLabel("analysis"), "analysis"),
+            row(facetLabel("condition"), "condition"),
+            row(facetLabel("topic"), "topic", t("map.topic_tip")),
+            chipsRow(t("map.facet_other"), otherChips),
           ]) if (sec) elemBox.append(sec);
           elemBox.append(el("p", { class: "map-side-meta",
-            text: "每个词条都有原文出处——进拆解页可看逐字引语并展开原文段。" }));
+            text: t("map.elements_footnote") }));
         })
         .catch((err) => {
           clear(elemBox);
-          elemBox.append(el("p", { class: "muted", text: err.code === 503 ? "要素索引未构建(点右上角状态角标一键构建)。" : "要素加载失败:" + err.message }));
+          elemBox.append(el("p", { class: "muted", text: err.code === 503 ? t("map.need_index") : t("map.elements_fail") + err.message }));
         });
     });
   }
@@ -1188,7 +1228,7 @@ export async function render(view) {
     clear(closeup);
     const card = el("div", { class: "map-closeup-card" });
     closeup.append(card);
-    card.append(el("p", { class: "muted", text: "加载关系数据…" }));
+    card.append(el("p", { class: "muted", text: t("map.loading_network") }));
     if (!S.netCache) {
       try { S.netCache = await getJSON("/network"); }
       catch (err) { S.netCache = { edges: [], _error: err.message }; }
@@ -1211,16 +1251,16 @@ export async function render(view) {
   async function buildCloseup(card, pid) {
     clear(card);
     const rec = titles[pid] || {};
-    const closeBtn = el("button", { class: "map-side-close", text: "×", title: "关闭" });
+    const closeBtn = el("button", { class: "map-side-close", text: "×", title: t("map.close") });
     closeBtn.addEventListener("click", closeCloseup);
     card.append(el("div", { class: "map-closeup-head" }, [
       el("div", {}, [
         el("b", { text: trunc(rec.title || pid, 70) }),
-        el("div", { class: "map-side-meta", text: "关系特写" + (rec.year ? ` · ${rec.year}` : "") }),
+        el("div", { class: "map-side-meta", text: t("map.btn_closeup") + (rec.year ? ` · ${rec.year}` : "") }),
       ]),
       closeBtn,
     ]));
-    const ld = el("p", { class: "muted", text: "加载共享要素邻居…" });
+    const ld = el("p", { class: "muted", text: t("map.loading_neighbors") });
     card.append(ld);
     let nbList = [], nbErr = null;
     try { nbList = await fetchNeighbors(pid); } catch (err) { nbErr = err; }
@@ -1261,8 +1301,8 @@ export async function render(view) {
         const tip = [
           full,
           isInner
-            ? "关系:" + (REL_LABELS[item.rel] || item.rel || "关联")
-            : (item.shared && item.shared.length ? "共享要素:" + item.shared.join("、") : null),
+            ? t("map.rel_label") + (REL_LABELS[item.rel] ? t(REL_LABELS[item.rel]) : (item.rel || t("map.rel.generic")))
+            : (item.shared && item.shared.length ? t("map.shared_label") + item.shared.join(t("map.enum_comma")) : null),
         ].filter(Boolean).join("\n");
         const g = svgEl("g", { class: "map-closeup-node" }, [
           svgEl("title", {}, [tip]), // 悬停显示全称 + 全部共享要素
@@ -1291,19 +1331,19 @@ export async function render(view) {
     const item = (color, label, dashed) =>
       el("span", {}, [el("i", { style: dashed ? `border:1px dashed ${color};background:none` : `background:${color}` }), label]);
     legend.append(
-      item(REL_COLORS.supports, "支持"),
-      item(REL_COLORS.contradicts, "矛盾"),
-      item(REL_COLORS.complements, "互补"),
-      item("#98a2b3", "共享要素邻居 top-8(当前镜头)", true),
+      item(REL_COLORS.supports, t(REL_LABELS.supports)),
+      item(REL_COLORS.contradicts, t(REL_LABELS.contradicts)),
+      item(REL_COLORS.complements, t(REL_LABELS.complements)),
+      item("#98a2b3", t("map.legend_neighbors"), true),
     );
     card.append(legend);
     if (nbErr) {
-      card.append(el("p", { class: "muted", text: nbErr.code === 503 ? "共享要素邻居需要先构建要素索引(外环为空)。" : "共享要素邻居加载失败:" + nbErr.message }));
+      card.append(el("p", { class: "muted", text: nbErr.code === 503 ? t("map.neighbors_need_index") : t("map.neighbors_fail") + nbErr.message }));
     } else if (!outer.length) {
-      card.append(el("p", { class: "muted", text: "该篇在当前镜头下没有共享要素的邻居(外环为空)。" }));
+      card.append(el("p", { class: "muted", text: t("map.neighbors_empty") }));
     }
     if (!inner.length) {
-      card.append(el("p", { class: "muted", text: S.netCache._error ? "关系数据不可用:" + S.netCache._error : "该篇暂无 AI 判定的关系边(内环为空)。" }));
+      card.append(el("p", { class: "muted", text: S.netCache._error ? t("map.network_unavailable") + S.netCache._error : t("map.no_edges") }));
     }
   }
 
@@ -1324,7 +1364,7 @@ export async function render(view) {
 
   function jumpToPaper(pid) { // 标题命中:飞行定位
     const n = S.byId.get(pid);
-    if (!n) return showToast(`当前镜头里找不到「${paperLabel(pid, 32)}」`);
+    if (!n) return showToast(t("map.not_in_lens", { name: paperLabel(pid, 32) }));
     clearSearch();
     S.selectedId = pid;
     S.haloId = null;
@@ -1336,16 +1376,16 @@ export async function render(view) {
     hideDrop();
     try {
       const hits = (await getJSON(`/elements?q=${encodeURIComponent(v)}`)).elements || [];
-      if (!hits.length) return showToast(`没有匹配的要素:${v}`);
+      if (!hits.length) return showToast(t("map.no_element_match", { q: v }));
       const hit = hits[0];
       const res = await postJSON("/elements/query", { element_ids: [hit.id] });
       const ids = new Set((res.papers || []).map((p) => p.paper_id));
-      if (!ids.size) return showToast(`要素「${hit.display_name}」没有命中论文`);
+      if (!ids.size) return showToast(t("map.element_no_papers", { name: hit.display_name }));
       S.dimSet = ids;
-      showChip(`要素「${hit.display_name}」· ${ids.size} 篇(Esc 清除)`);
+      showChip(t("map.element_chip", { name: hit.display_name, n: ids.size }));
       S.dirty = true;
     } catch (err) {
-      showToast(err.code === 503 ? "要素索引未构建,点右上角状态角标一键构建" : "检索失败:" + err.message);
+      showToast(err.code === 503 ? t("map.need_index_toast") : t("map.search_fail") + err.message);
     }
   }
 
@@ -1373,7 +1413,7 @@ export async function render(view) {
       dropItems.push({ run });
     }
     const elemRun = () => { searchByElement(q); };
-    const elemRow = el("div", { class: "map-search-item map-search-elem", text: `按要素「${q}」筛选` });
+    const elemRow = el("div", { class: "map-search-item map-search-elem", text: t("map.filter_by_element", { q }) });
     elemRow.addEventListener("pointerdown", (e) => { e.preventDefault(); elemRun(); });
     searchDrop.append(elemRow);
     dropItems.push({ run: elemRun });
@@ -1402,7 +1442,7 @@ export async function render(view) {
       hideDrop();
       const id = v.toUpperCase();
       const n = S.byId.get(id) || S.nodes.find((x) => String(x.id).toUpperCase() === id);
-      if (!n) return showToast(`库中没有 ${id}`);
+      if (!n) return showToast(t("map.no_such_id", { id }));
       clearSearch();
       S.selectedId = n.id;
       focusNode(n);
@@ -1434,23 +1474,22 @@ export async function render(view) {
     } catch (err) {
       lensSel.value = prev;
       showToast(err.code === 503
-        ? `「${LENS_NAMES[target] || target}」镜头需要先构建要素索引(点右上角状态角标)`
-        : "镜头加载失败:" + err.message);
+        ? t("map.lens_need_index", { lens: lensName(target) })
+        : t("map.lens_fail") + err.message);
     }
     lensSel.disabled = false; relayoutBtn.disabled = false;
   });
 
   relayoutBtn.addEventListener("click", async () => {
-    const name = LENS_NAMES[S.lens] || S.lens;
-    if (!window.confirm(`重新布局会全量重排「${name}」镜头的点位(老点位置会变)。继续?`)) return;
+    if (!window.confirm(t("map.relayout_confirm", { lens: lensName(S.lens) }))) return;
     lensSel.disabled = true; relayoutBtn.disabled = true;
     try {
       const p = await postJSON(`/map/relayout?lens=${encodeURIComponent(S.lens)}`, {});
       prepareLens(p);
       closePanel();
-      showToast("已重新布局");
+      showToast(t("map.relayout_done"));
     } catch (err) {
-      showToast("重新布局失败:" + err.message);
+      showToast(t("map.relayout_fail") + err.message);
     }
     lensSel.disabled = false; relayoutBtn.disabled = false;
   });
@@ -1555,7 +1594,7 @@ export async function render(view) {
       sessionStorage.removeItem("mapFocusPaper");
       const fn = S.byId.get(fp);
       if (fn) showPaper(fn);
-      else showToast("当前镜头里找不到这篇论文");
+      else showToast(t("map.focus_not_found"));
     }
   } catch (err) { /* sessionStorage 不可用:忽略 */ }
 
