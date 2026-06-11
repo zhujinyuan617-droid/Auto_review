@@ -499,6 +499,16 @@ def create_app(
         return map_service.institution_elements(config, id)
 
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
+
+    @app.middleware("http")
+    async def _no_stale_assets(request, call_next):
+        # 本地桌面应用:前端脚本/样式禁用旧缓存(no-cache=每次向服务器核对,
+        # 未变走 304 不重传)。否则改完前端用户普通刷新仍看到旧界面。
+        resp = await call_next(request)
+        if request.url.path.startswith("/assets") or request.url.path == "/":
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     return app
 
 
