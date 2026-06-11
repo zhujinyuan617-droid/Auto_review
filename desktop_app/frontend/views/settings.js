@@ -1,5 +1,6 @@
 import { getJSON, postJSON, putJSON, delJSON } from "/assets/api.js";
 import { el, clear, loading, errorState } from "/assets/ui.js";
+import { t, getLang, setLang } from "/assets/i18n.js";
 
 export async function render(view) {
   loading(view);
@@ -14,41 +15,53 @@ export async function render(view) {
     return errorState(view, err.message, () => render(view));
   }
   clear(view);
-  view.append(el("h2", { text: "设置" }));
+  view.append(el("h2", { text: t("settings.title") }));
+  view.append(languageSection());
   view.append(apiKeySection(view, state.configured));
   view.append(parallelSection(view, parallel));
   view.append(manifestSection(manifest));
 }
 
+function languageSection() {
+  const box = el("div", { class: "card-box section" }, [el("h3", { text: t("settings.language_title") })]);
+  box.append(el("p", { class: "muted", text: t("settings.language_hint") }));
+  for (const [code, labelKey] of [["zh", "settings.language_zh"], ["en", "settings.language_en"]]) {
+    const btn = el("button", { text: (getLang() === code ? "✓ " : "") + t(labelKey) });
+    btn.addEventListener("click", () => setLang(code));
+    box.append(btn, " ");
+  }
+  return box;
+}
+
 function apiKeySection(view, configured) {
   const box = el("div", { class: "card-box section" }, [el("h3", { text: "API Key" })]);
-  const status = el("p", { class: "muted", text: configured ? "已配置(已存入系统钥匙串)" : "未配置" });
+  const status = el("p", { class: "muted", text: configured ? t("settings.apikey_configured") : t("settings.apikey_not_configured") });
   box.append(status);
-  box.append(el("p", { class: "muted", text: "已接入引擎:此处保存的 key 会注入引擎(env 覆盖优先)。" }));
+  box.append(el("p", { class: "muted", text: t("settings.apikey_hint") }));
 
-  const input = el("input", { class: "search", type: "password", placeholder: "粘贴 DeepSeek API key…" });
-  const saveBtn = el("button", { text: "保存" });
+  const input = el("input", { class: "search", type: "password", placeholder: t("settings.apikey_placeholder") });
+  const saveBtn = el("button", { text: t("common.save") });
   saveBtn.addEventListener("click", async () => {
     const key = input.value.trim();
-    if (!key) { status.textContent = "key 不能为空"; return; }
+    if (!key) { status.textContent = t("settings.apikey_empty"); return; }
     try {
       await postJSON("/settings/apikey", { api_key: key });
       input.value = "";
       render(view);
     } catch (err) {
       status.className = "error";
-      status.textContent = err.code === 400 ? "key 无效(空白)" : "保存失败:" + err.message;
+      status.textContent = err.code === 400 ? t("settings.apikey_invalid") : t("settings.save_fail") + err.message;
     }
   });
 
-  const delBtn = el("button", { text: "删除" });
+  const delBtn = el("button", { text: t("common.delete") });
   delBtn.addEventListener("click", async () => {
     try {
       await delJSON("/settings/apikey");
       render(view);
     } catch (err) {
       status.className = "error";
-      status.textContent = "删除失败:" + err.message;
+      status.textContent = t("settings.delete_fail") + err.message;
     }
   });
 
@@ -57,12 +70,10 @@ function apiKeySection(view, configured) {
 }
 
 function parallelSection(view, parallel) {
-  const box = el("div", { class: "card-box section" }, [el("h3", { text: "AI 并行数" })]);
+  const box = el("div", { class: "card-box section" }, [el("h3", { text: t("settings.parallel_title") })]);
   box.append(el("p", {
     class: "muted",
-    text: `批量任务(全库构建、补抽等)同时发起的 AI 调用数,按所用模型档位取值。` +
-      `账号并发上限:flash ${parallel.limits.flash} / pro ${parallel.limits.pro};` +
-      `超过上限只会被限流,不会更快。`,
+    text: t("settings.parallel_hint", { flash: parallel.limits.flash, pro: parallel.limits.pro }),
   }));
 
   const flashInput = el("input", {
@@ -75,13 +86,13 @@ function parallelSection(view, parallel) {
   });
   const status = el("p", { class: "muted", text: "" });
 
-  const saveBtn = el("button", { text: "保存" });
+  const saveBtn = el("button", { text: t("common.save") });
   saveBtn.addEventListener("click", async () => {
     const flash = parseInt(flashInput.value, 10);
     const pro = parseInt(proInput.value, 10);
     if (!Number.isInteger(flash) || !Number.isInteger(pro)) {
       status.className = "error";
-      status.textContent = "请输入整数";
+      status.textContent = t("settings.parallel_int_required");
       return;
     }
     try {
@@ -90,19 +101,19 @@ function parallelSection(view, parallel) {
     } catch (err) {
       status.className = "error";
       status.textContent = (err.code === 400 || err.code === 422)
-        ? "数值越界(上限见上方说明,且至少为 1)"
-        : "保存失败:" + err.message;
+        ? t("settings.parallel_out_of_range")
+        : t("settings.save_fail") + err.message;
     }
   });
 
-  box.append(el("div", { class: "section" }, [el("label", { text: "flash 并行数:" }), flashInput]));
-  box.append(el("div", { class: "section" }, [el("label", { text: "pro 并行数:" }), proInput]));
+  box.append(el("div", { class: "section" }, [el("label", { text: t("settings.parallel_flash_label") }), flashInput]));
+  box.append(el("div", { class: "section" }, [el("label", { text: t("settings.parallel_pro_label") }), proInput]));
   box.append(saveBtn, " ", status);
   return box;
 }
 
 function manifestSection(manifest) {
-  const box = el("div", { class: "card-box section" }, [el("h3", { text: "安装清单" })]);
+  const box = el("div", { class: "card-box section" }, [el("h3", { text: t("settings.manifest_title") })]);
   const items = manifest.will_install || [];
   const ul = el("ul");
   for (const it of items) ul.append(el("li", { text: `${it.name} —— ${it.purpose}` }));

@@ -8,35 +8,35 @@
   </head>
   <body>
     <header id="topbar">
-      <h1><a href="#/map" title="回到知识地图">Auto Review</a></h1>
-      <span class="tagline">论文 · 拆解 · 重组 · 出稿</span>
+      <h1><a href="#/map" data-i18n-title="nav.home_title">Auto Review</a></h1>
+      <span class="tagline" data-i18n="nav.tagline">论文 · 拆解 · 重组 · 出稿</span>
     </header>
     <div id="layout">
       <!-- 左轨四组(SP-Map §5 + Wave-3 ②):找 / 读 / 写 / 设置;地图=首页(点 logo 回)。
            「关系网」「全库统计」「图表墙」从导航撤下,#/network #/stats #/figures 路由保留
            (书签可达):统计并入地图区面板,图表进论文卡/详情页,关系网并入地图特写。 -->
       <nav id="nav">
-        <a href="#/map" class="nav-home">知识地图</a>
+        <a href="#/map" class="nav-home" data-i18n="nav.home">知识地图</a>
         <div class="nav-group">
-          <span class="nav-group-label">找</span>
-          <a href="#/elements">要素检索</a>
+          <span class="nav-group-label" data-i18n="nav.group_find">找</span>
+          <a href="#/elements" data-i18n="nav.elements">要素检索</a>
         </div>
         <div class="nav-group">
-          <span class="nav-group-label">读</span>
-          <a href="#/papers">论文列表</a>
-          <a href="#/import">导入</a>
+          <span class="nav-group-label" data-i18n="nav.group_read">读</span>
+          <a href="#/papers" data-i18n="nav.papers">论文列表</a>
+          <a href="#/import" data-i18n="nav.import">导入</a>
         </div>
         <div class="nav-group">
-          <span class="nav-group-label">写</span>
-          <a href="#/writing">写作</a>
+          <span class="nav-group-label" data-i18n="nav.group_write">写</span>
+          <a href="#/writing" data-i18n="nav.writing">写作</a>
         </div>
         <div class="nav-group">
-          <span class="nav-group-label">设置</span>
-          <a href="#/settings">设置</a>
+          <span class="nav-group-label" data-i18n="nav.group_settings">设置</span>
+          <a href="#/settings" data-i18n="nav.settings">设置</a>
           <!-- 课题组撤下导航:并入地图机构镜头的机构面板(按资深作者分组);#/groups 路由保留 -->
         </div>
       </nav>
-      <main id="view">加载中…</main>
+      <main id="view" data-i18n="common.loading">加载中…</main>
     </div>
     <script src="/assets/vendor/force-graph.min.js"></script>
     <script type="module" src="/assets/app.js"></script>

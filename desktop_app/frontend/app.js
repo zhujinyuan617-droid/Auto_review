@@ -1,4 +1,5 @@
 import { placeholder } from "/assets/ui.js";
+import { t, applyStatic, initLang } from "/assets/i18n.js";
 
 // Routes whose module exists. map 是首页(无 hash / #/ 时进入);network 不在导航上
 // 但路由保留(书签兼容,SP-Map §5)。
@@ -40,16 +41,16 @@ async function route() {
     placeholder(view);
     return;
   }
-  view.textContent = "加载中…";
+  view.textContent = t("common.loading");
   try {
     const mod = await loader();
     if (seq !== routeSeq) return; // 已切去别屏,本次渲染作废
     await mod.render(view, params);
   } catch (err) {
     if (seq !== routeSeq) return;
-    view.textContent = "页面加载失败:" + err.message;
+    view.textContent = t("app.load_fail") + err.message;
   }
 }
 
 window.addEventListener("hashchange", route);
-window.addEventListener("load", route);
+window.addEventListener("load", () => { applyStatic(); initLang(); route(); });
