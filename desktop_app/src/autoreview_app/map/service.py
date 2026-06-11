@@ -32,7 +32,7 @@ from .layout import (
 )
 
 # v4(Wave-3 ①):元素镜头布点换确定性径向(权重向心+区内年轮);灰点收「待构建」区
-PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "radial-v4", "max_cluster": 30}
+PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "radial-v4.1", "max_cluster": 30}
 LENS_DF_CAP = {"topic": 0.35, "method": 0.30, "material": 0.30}  # 密核由 split 的语义分组兜底
 ARRIVAL_BATCH_GAP_MIN = 30
 UNBUILT_CLUSTER = "__unbuilt__"
@@ -98,6 +98,22 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
 
     edges = similarity_edges(feats, idf(feats), top_k=PARAMS["top_k"],
                              df_cap_ratio=LENS_DF_CAP.get(lens, 1.0))
+    # 孤点补边(S98 教训):要素全是"烂大街"工具的论文在 df-cap 后零边 → 误进零散。
+    # 按未截断相似度连 top-2 弱边(×0.5 权重),让它归入最像的区而不主导聚类。
+    connected = {a for a, _, _ in edges} | {b for _, b, _ in edges}
+    full_w = idf(feats)
+    for p in sorted(feats):
+        if not feats[p] or p in connected:
+            continue
+        scores = []
+        for o, fo in feats.items():
+            if o == p or not fo:
+                continue
+            s = sum(full_w.get(e, 0.0) for e in feats[p] & fo)
+            if s > 0:
+                scores.append((s, o))
+        for s, o in sorted(scores, key=lambda t: (-t[0], t[1]))[:2]:
+            edges.append((p, o, s * 0.5))
     sizes = _degree_sizes(list(feats), edges)
     names = element_names(config.elements_db) if config.elements_db.exists() else {}
     years = _paper_years(config)
