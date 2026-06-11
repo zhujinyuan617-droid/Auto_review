@@ -139,7 +139,7 @@ function blockList(title, blocks) {
 function blockAnchor(paperId, rbId) {
   if (!rbId) return null;
   const wrap = el("span", { class: "block-anchor" });
-  const a = el("a", { href: "javascript:void 0", text: `原文段 ${rbId} ↗` });
+  const a = el("a", { href: "javascript:void 0", text: "原文段 ↗", title: "就地展开这一段原文" });
   const slot = el("div", { class: "block-ctx" });
   slot.hidden = true;
   let loaded = false;
@@ -221,7 +221,7 @@ async function renderDecomposition(view, id, focusBlockId) {
   // 深链定位:从检索/统计的"原文段↗"跳来时,顶端直接展开该原文段
   if (focusBlockId) {
     const banner = el("div", { class: "card-box block-focus" }, [
-      el("h3", { style: "margin-top:0;", text: `原文段定位:${focusBlockId}` }),
+      el("h3", { style: "margin-top:0;", text: "原文段定位" }),
     ]);
     view.append(banner);
     getJSON(`/papers/${encodeURIComponent(id)}/blocks/${encodeURIComponent(focusBlockId)}`)
@@ -256,10 +256,10 @@ async function renderDecomposition(view, id, focusBlockId) {
   const relSec = el("div", { class: "section" }, [el("h3", { text: `结果间关联 (${rel.length})` })]);
   if (rel.length === 0) relSec.append(el("p", { class: "muted", text: "无" }));
   for (const r of rel) {
+    // 依据原子的内部编号不再上屏(后台溯源字段;屏上各条目就在上方两节里)
     relSec.append(
       el("div", { class: "atom" }, [
         el("div", { text: (r.synthesis_type ? "[" + r.synthesis_type + "] " : "") + (r.claim || "") }),
-        el("div", { class: "quote", text: "依据原子:" + (r.supporting_evidence_atom_ids || []).join(", ") }),
       ])
     );
   }

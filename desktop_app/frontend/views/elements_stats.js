@@ -106,13 +106,13 @@ async function drawDrawer(drawer, facet, item) {
   drawer.append(el("h4", { text: "论文与原文" }));
   for (const p of detail.papers) {
     drawer.append(el("div", { class: "paper-row" }, [
-      el("b", { text: p.paper_id }), " ", (titles[p.paper_id] || "").slice(0, 50),
+      el("b", { text: (titles[p.paper_id] || p.paper_id).slice(0, 60) }),
     ]));
     for (const q of p.quotes) {
       drawer.append(
         el("div", { class: "quote-box", text: `"${q.quote}"` }),
         el("a", { href: `#/papers/${p.paper_id}/decompose/${encodeURIComponent(q.reading_block_id)}`,
-          text: `原文段 ${q.reading_block_id} ↗`, title: "跳到拆解页并定位这一段原文" }),
+          text: "原文段 ↗", title: "跳到拆解页并定位这一段原文" }),
       );
     }
   }

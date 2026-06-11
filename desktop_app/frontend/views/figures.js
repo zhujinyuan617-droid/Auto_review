@@ -51,7 +51,7 @@ export async function render(view, params) {
         style: "cursor:pointer;" + (p.paper_id === current ? "background:#ddf4ff;" : ""),
       }, [
         el("span", { class: "ptitle", text: p.title || p.paper_id }),
-        el("span", { class: "pmeta", text: [p.paper_id, p.year].filter(Boolean).join(" · ") }),
+        el("span", { class: "pmeta", text: [p.year, p.journal].filter(Boolean).join(" · ") }),
       ]);
       row.addEventListener("click", () => select(p.paper_id));
       list.append(row);
@@ -83,7 +83,7 @@ export async function render(view, params) {
     gridWrap.append(
       el("h3", { style: "margin:0 0 4px;", text: p.title || id }),
       el("p", { class: "pmeta", style: "margin:0 0 12px;" }, [
-        [id, p.year, p.journal].filter(Boolean).join(" · ") + (figures.length ? ` · 共 ${figures.length} 张图片 · ` : " · "),
+        [p.year, p.journal].filter(Boolean).join(" · ") + (figures.length ? ` · 共 ${figures.length} 张图片 · ` : " · "),
         el("a", { class: "back", href: "#/papers/" + encodeURIComponent(id) }, "查看论文 ↗"),
       ])
     );

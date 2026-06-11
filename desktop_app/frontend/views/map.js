@@ -114,7 +114,7 @@ export async function render(view) {
 
   const searchInput = el("input", {
     class: "map-search",
-    placeholder: "搜标题关键词 / Sxx / 要素名;Esc 清除",
+    placeholder: "搜标题关键词 / 要素名;Esc 清除",
   });
   const searchChip = el("span", { class: "map-chip", hidden: "" });
   const searchDrop = el("div", { class: "map-search-drop", hidden: "" });
@@ -482,9 +482,10 @@ export async function render(view) {
       const rec = titles[n.id] || {};
       const head = rec.title
         ? trunc(rec.title, 60) + (rec.year ? `(${rec.year})` : "")
-        : "(无标题)";
-      const sub = n.id + (n.lit ? "" : " ·(" + (UNLIT_REASON[S.lens] || "未点亮") + ")");
-      showTooltip(clientX, clientY, head + "\n" + sub);
+        : n.id; // 无标题才退回编号兜底(前台一律标题,编号留在后台)
+      const sub = [rec.journal, n.lit ? null : (UNLIT_REASON[S.lens] || "未点亮")]
+        .filter(Boolean).join(" · ");
+      showTooltip(clientX, clientY, head + (sub ? "\n" + sub : ""));
     } else if (c) {
       showTooltip(clientX, clientY,
         `${c.label} · ${c.members.length} 篇${c.description ? "\n" + c.description : ""}`);
@@ -513,13 +514,14 @@ export async function render(view) {
   function showArrivals() {
     openPanel(`新文献着陆(${batch.length} 篇)`, (body) => {
       for (const a of batch) {
-        const rec = titles[a.paper_id] || {};
-        const head = a.isolated
-          ? el("div", {}, [el("b", { text: a.paper_id }), " ⚠ 空白地带(与现有库关联弱)"])
-          : el("div", {}, [el("b", { text: a.paper_id }), ` → 落入「${a.cluster_label || a.cluster || "?"}」`]);
+        const head = el("div", {}, [
+          el("b", { text: paperLabel(a.paper_id, 56) }),
+          el("div", { class: "map-side-meta", text: a.isolated
+            ? "⚠ 空白地带(与现有库关联弱)"
+            : `→ 落入「${a.cluster_label || a.cluster || "?"}」` }),
+        ]);
         const row = el("div", { class: "map-row" }, [
           head,
-          rec.title ? el("div", { class: "map-side-meta", text: trunc(rec.title, 64) }) : null,
           a.neighbors && a.neighbors.length
             ? el("div", { class: "map-side-meta" }, [
                 "最近邻:",
@@ -529,7 +531,7 @@ export async function render(view) {
         ]);
         row.addEventListener("click", () => {
           const n = S.byId.get(a.paper_id);
-          if (!n) return showToast(`当前镜头里找不到 ${a.paper_id}`);
+          if (!n) return showToast(`当前镜头里找不到「${paperLabel(a.paper_id, 32)}」`);
           S.selectedId = a.paper_id;
           S.haloId = a.paper_id; // 呼吸光圈(CSS 动画)
           focusNode(n);
@@ -760,8 +762,7 @@ export async function render(view) {
             clear(routeSlot);
             const box = el("div", { class: "map-route" }, [el("div", { text: r.hint || "建议从这几篇入手:" })]);
             for (const pid of r.start_with || []) {
-              const t = (titles[pid] && titles[pid].title) || "";
-              const item = el("div", { class: "map-route-item", text: `${pid} ${t.slice(0, 46)}` });
+              const item = el("div", { class: "map-route-item", text: paperLabel(pid, 56) });
               item.addEventListener("click", () => { const n = S.byId.get(pid); if (n) showPaper(n); });
               box.append(item);
             }
@@ -774,10 +775,13 @@ export async function render(view) {
         body.append(el("div", { class: "map-paper-actions" }, [btn]));
       }
       for (const n of c.members) { // 已按核心度(size)降序
-        const t = (titles[n.id] && titles[n.id].title) || "";
+        const rec = titles[n.id] || {};
         const row = el("div", { class: "map-row" }, [
-          el("div", {}, [el("b", { text: n.id }), n.lit ? null : el("span", { class: "map-side-meta", text: " (未点亮)" })]),
-          el("div", { class: "map-side-meta", text: trunc(t, 70) || "(无标题)" }),
+          el("div", {}, [
+            el("b", { text: paperLabel(n.id, 70) }),
+            n.lit ? null : el("span", { class: "map-side-meta", text: " (未点亮)" }),
+          ]),
+          el("div", { class: "map-side-meta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
         ]);
         row.addEventListener("click", () => showPaper(n));
         body.append(row);
@@ -839,10 +843,10 @@ export async function render(view) {
       const { btn, log } = buildControls(`一键构建要素(${c.members.length} 篇)`);
       body.append(el("div", { class: "map-paper-actions" }, [btn]), log);
       for (const n of c.members) {
-        const t = (titles[n.id] && titles[n.id].title) || "";
+        const rec = titles[n.id] || {};
         const row = el("div", { class: "map-row" }, [
-          el("div", {}, [el("b", { text: n.id })]),
-          el("div", { class: "map-side-meta", text: trunc(t, 70) || "(无标题)" }),
+          el("div", {}, [el("b", { text: paperLabel(n.id, 70) })]),
+          el("div", { class: "map-side-meta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
         ]);
         row.addEventListener("click", () => showPaper(n));
         body.append(row);
@@ -856,16 +860,10 @@ export async function render(view) {
     S.dirty = true;
     focusNode(n);
     const rec = titles[n.id] || {};
-    // 标头以标题为主,Sxx 降为身下小字(去 S 化)。
+    // 标头=标题;编号不上前台(后台对应用,见 paperLabel 兜底)。
     openPanel(rec.title ? trunc(rec.title, 90) : n.id, (body) => {
-      body.append(
-        el("div", { class: "map-side-meta" }, [
-          el("b", { text: n.id }),
-          [rec.year, rec.journal].filter(Boolean).length
-            ? " · " + [rec.year, rec.journal].filter(Boolean).join(" · ")
-            : null,
-        ]),
-      );
+      const meta = [rec.year, rec.journal].filter(Boolean).join(" · ");
+      if (meta) body.append(el("div", { class: "map-side-meta", text: meta }));
       const b1 = el("button", { class: "map-btn", text: "进拆解页" });
       b1.addEventListener("click", () => { location.hash = `#/papers/${n.id}/decompose`; });
       const b2 = el("button", { class: "map-btn", text: "在检索屏选中" });
@@ -970,8 +968,8 @@ export async function render(view) {
     closeBtn.addEventListener("click", closeCloseup);
     card.append(el("div", { class: "map-closeup-head" }, [
       el("div", {}, [
-        el("b", { text: pid + " 关系特写" }),
-        el("div", { class: "map-side-meta", text: trunc(rec.title || "", 70) }),
+        el("b", { text: trunc(rec.title || pid, 70) }),
+        el("div", { class: "map-side-meta", text: "关系特写" + (rec.year ? ` · ${rec.year}` : "") }),
       ]),
       closeBtn,
     ]));
@@ -1009,9 +1007,12 @@ export async function render(view) {
           stroke: color, "stroke-width": isInner ? 2 : 1.2,
           "stroke-dasharray": isInner ? null : "4 4", opacity: isInner ? 0.8 : 0.5,
         }));
-        const t = trunc((titles[item.id] && titles[item.id].title) || "", 18); // 圈下文字 = 标题
+        // 圈下两行 = 标题截两段(编号不上前台;悬停 <title> 看全称)
+        const full = (titles[item.id] && titles[item.id].title) || item.id;
+        const t1 = trunc(full, 16);
+        const t2 = full.length > 16 ? trunc(full.slice(16), 14) : "";
         const tip = [
-          (titles[item.id] && titles[item.id].title) || item.id,
+          full,
           isInner
             ? "关系:" + (REL_LABELS[item.rel] || item.rel || "关联")
             : (item.shared && item.shared.length ? "共享要素:" + item.shared.join("、") : null),
@@ -1019,10 +1020,10 @@ export async function render(view) {
         const g = svgEl("g", { class: "map-closeup-node" }, [
           svgEl("title", {}, [tip]), // 悬停显示全称 + 全部共享要素
           svgEl("circle", { cx: x, cy: y, r: isInner ? 13 : 10, fill: "#fff", stroke: color, "stroke-width": 2 }),
-          svgEl("text", { x, y: y + 3, "text-anchor": "middle", "font-size": 9, fill: "#1f2328" }, [item.id]),
-          svgEl("text", { x, y: y + (isInner ? 26 : 22), "text-anchor": "middle", "font-size": 9, fill: "#656d76" }, [t]),
+          svgEl("text", { x, y: y + (isInner ? 26 : 22), "text-anchor": "middle", "font-size": 9, fill: "#1f2328" }, [t1]),
+          t2 ? svgEl("text", { x, y: y + (isInner ? 36 : 32), "text-anchor": "middle", "font-size": 8.5, fill: "#656d76" }, [t2]) : null,
           !isInner && item.shared && item.shared.length
-            ? svgEl("text", { x, y: y + 33, "text-anchor": "middle", "font-size": 8.5, fill: "#8a7aa8" },
+            ? svgEl("text", { x, y: y + 44, "text-anchor": "middle", "font-size": 8.5, fill: "#8a7aa8" },
                 [trunc(item.shared[0], 14)])
             : null,
         ]);
@@ -1033,8 +1034,9 @@ export async function render(view) {
     ring(outer, 218, false);
     ring(inner, 126, true);
     svg.append(
-      svgEl("circle", { cx, cy, r: 17, fill: ACCENT }),
-      svgEl("text", { x: cx, y: cy + 3, "text-anchor": "middle", "font-size": 9, fill: "#fff" }, [pid]),
+      svgEl("circle", { cx, cy, r: 17, fill: ACCENT }, [svgEl("title", {}, [rec.title || pid])]),
+      svgEl("text", { x: cx, y: cy + 32, "text-anchor": "middle", "font-size": 10,
+        "font-weight": "600", fill: "#1f2328" }, [trunc(rec.title || pid, 28)]),
     );
     card.append(svg);
 
@@ -1075,7 +1077,7 @@ export async function render(view) {
 
   function jumpToPaper(pid) { // 标题命中:飞行定位
     const n = S.byId.get(pid);
-    if (!n) return showToast(`当前镜头里找不到 ${pid}`);
+    if (!n) return showToast(`当前镜头里找不到「${paperLabel(pid, 32)}」`);
     clearSearch();
     S.selectedId = pid;
     S.haloId = null;
@@ -1117,7 +1119,7 @@ export async function render(view) {
       const run = () => { hideDrop(); jumpToPaper(p.paper_id); };
       const row = el("div", { class: "map-search-item" }, [
         el("span", { class: "map-search-item-title", text: p.title }),
-        el("span", { class: "map-side-meta", text: [p.year, p.paper_id].filter(Boolean).join(" · ") }),
+        el("span", { class: "map-side-meta", text: [p.year, p.journal].filter(Boolean).join(" · ") }),
       ]);
       row.addEventListener("pointerdown", (e) => { e.preventDefault(); run(); }); // 先于 blur 生效
       searchDrop.append(row);

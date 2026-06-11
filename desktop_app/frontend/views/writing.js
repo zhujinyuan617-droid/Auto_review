@@ -75,8 +75,18 @@ function draftSection() {
     if (Array.isArray(seed) && seed.length) {
       papers.value = seed.join(",");
       if (seedTopic) topic.value = seedTopic;
-      box.append(el("p", { class: "muted",
-        text: `已带入检索命中 ${seed.length} 篇(可删减);主题预填了所选要素,请按需要改写。` }));
+      const seedInfo = el("div", { class: "muted" }, [
+        el("p", { text: `已带入检索命中 ${seed.length} 篇(可删减);主题预填了所选要素,请按需要改写。` }),
+      ]);
+      box.append(seedInfo);
+      // 编号是后台对应,屏上把标题列给用户看(拉不到标题就保持原样)
+      getJSON("/library/papers").then((lib) => {
+        const t = Object.fromEntries((lib.papers || []).map((p) => [p.paper_id, p.title || ""]));
+        for (const id of seed.slice(0, 6)) {
+          seedInfo.append(el("p", { class: "pmeta", text: "· " + ((t[id] || id).slice(0, 70)) }));
+        }
+        if (seed.length > 6) seedInfo.append(el("p", { class: "pmeta", text: `…等共 ${seed.length} 篇` }));
+      }).catch(() => { /* 标题列表是锦上添花 */ });
     }
   } catch (err) { /* sessionStorage 不可用:跳过种子 */ }
   const status = el("div", { class: "section" });

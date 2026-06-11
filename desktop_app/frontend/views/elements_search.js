@@ -202,7 +202,7 @@ export async function render(view, params) {
       const rec = recs[p.paper_id] || {};
       const row = el("div", { class: "paper-row" }, [
         el("span", { class: "ptitle", text: rec.title || p.paper_id }),
-        el("span", { class: "pmeta", text: [p.paper_id, rec.year, rec.journal].filter(Boolean).join(" · ") }),
+        el("span", { class: "pmeta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
       ]);
       row.addEventListener("click", () => drawDetail(p));
       results.append(row);
@@ -247,7 +247,8 @@ export async function render(view, params) {
   }
 
   function drawTable(data) {
-    const head = el("tr", {}, [el("th", { text: "论文" }), el("th", { text: "标题" }),
+    // 屏上只展示标题(编号留在 CSV 导出里做数据对应)
+    const head = el("tr", {}, [el("th", { text: "论文" }),
       ...selected.map((s) => el("th", { text: s.name }))]);
     const table = el("table", { class: "elements-table" }, [head]);
     for (const p of data.papers) {
@@ -256,8 +257,8 @@ export async function render(view, params) {
         const valueText = m && m.values.length ? m.values.map((v) => v.raw).join(", ") : (m ? m.surface : "—");
         return el("td", { text: valueText });
       });
-      const tr = el("tr", {}, [el("td", { text: p.paper_id }),
-        el("td", { text: (titles[p.paper_id] || "").slice(0, 60) }), ...cells]);
+      const tr = el("tr", {}, [
+        el("td", { text: (titles[p.paper_id] || p.paper_id).slice(0, 60) }), ...cells]);
       tr.addEventListener("click", () => drawDetail(p));
       table.append(tr);
     }
@@ -290,14 +291,14 @@ export async function render(view, params) {
     const rec = recs[p.paper_id] || {};
     detail.append(
       el("h3", { text: rec.title || p.paper_id }),
-      el("p", { class: "pmeta", text: [p.paper_id, rec.year, rec.journal].filter(Boolean).join(" · ") }),
+      el("p", { class: "pmeta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
     );
     for (const m of p.matches) {
       detail.append(
         el("div", {}, [el("span", { class: "tag", text: m.display_name }), ` ${m.surface}`]),
         el("div", { class: "quote-box", text: `"${m.quote}"` }),
         el("a", { href: `#/papers/${p.paper_id}/decompose/${encodeURIComponent(m.reading_block_id)}`,
-          text: `原文段 ${m.reading_block_id} ↗`, title: "跳到拆解页并定位这一段原文" }),
+          text: "原文段 ↗", title: "跳到拆解页并定位这一段原文" }),
       );
     }
   }
