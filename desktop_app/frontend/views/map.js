@@ -854,6 +854,23 @@ export async function render(view) {
     });
   }
 
+  // 论文卡的 facet 顺序与人话标签:按"读论文的顺序"讲——先做什么/发现什么,
+  // 再用什么材料、什么方法、什么条件;主题殿后。finding 不在卡上重复
+  //(卡片的"主要发现"是整句版本;压缩版半句留在拆解页带原文锚点)。
+  const METHOD_FACETS = ["simulation", "measurement", "preparation", "characterization", "analysis"];
+  const FACET_SKIP = new Set(["finding", "topic", "material", ...METHOD_FACETS, "condition"]);
+
+  function chipsRow(label, chips) {
+    if (!chips.length) return null;
+    const wrap = el("div", { class: "map-chip-wrap" });
+    for (const c of chips) {
+      wrap.append(el("span", { class: "tag", text: c.text, title: c.tip || "" }));
+    }
+    return el("div", { class: "map-panel-sec" }, [
+      el("h4", { class: "map-facet-head", text: label }), wrap,
+    ]);
+  }
+
   function showPaper(n) {
     S.selectedId = n.id;
     S.haloId = null;
@@ -866,14 +883,35 @@ export async function render(view) {
       if (meta) body.append(el("div", { class: "map-side-meta", text: meta }));
       const b1 = el("button", { class: "map-btn", text: "进拆解页" });
       b1.addEventListener("click", () => { location.hash = `#/papers/${n.id}/decompose`; });
-      const b2 = el("button", { class: "map-btn", text: "在检索屏选中" });
-      // 检索屏暂不读 hash 参数(elements_search.js 非本视图所有);先带 id 跳转,联动留待该屏支持。
-      b2.addEventListener("click", () => { location.hash = `#/elements/${n.id}`; });
+      const b2 = el("button", { class: "map-btn", text: "打开 PDF" });
+      b2.addEventListener("click", () => window.open(`/papers/${encodeURIComponent(n.id)}/pdf`, "_blank"));
       const b3 = el("button", { class: "map-btn", text: "关系特写" });
       b3.addEventListener("click", () => openCloseup(n.id));
       body.append(el("div", { class: "map-paper-actions" }, [b1, b2, b3]));
 
-      // 图表前 3 张(Wave-3 ②:图表墙撤屏后进论文卡;点开大图,完整画廊在详情页)
+      // 1) 先讲这篇做什么 + 主要发现(卡片摘要的整句版本,人读的开场)
+      const aboutBox = el("div");
+      body.append(aboutBox);
+      getJSON(`/papers/${encodeURIComponent(n.id)}`)
+        .then((p) => {
+          if (p.objective) {
+            aboutBox.append(el("div", { class: "map-panel-sec" }, [
+              el("h4", { class: "map-facet-head", text: "这篇做什么" }),
+              el("p", { class: "map-about", text: p.objective }),
+            ]));
+          }
+          const findings = p.main_findings || [];
+          if (findings.length) {
+            const ul = el("ul", { class: "map-findings" });
+            for (const f of findings) ul.append(el("li", { text: f }));
+            aboutBox.append(el("div", { class: "map-panel-sec" }, [
+              el("h4", { class: "map-facet-head", text: "主要发现" }), ul,
+            ]));
+          }
+        })
+        .catch(() => { /* 摘要拉不到不挡卡片其余部分 */ });
+
+      // 2) 图表:3 列网格最多 9 张;大图可左右翻看全部;再多去详情页画廊
       const figBox = el("div");
       body.append(figBox);
       getJSON(`/papers/${encodeURIComponent(n.id)}/figures`)
@@ -881,8 +919,8 @@ export async function render(view) {
           const figs = d.figures || [];
           if (!figs.length) return;
           const { openLightbox } = await import("/assets/views/figures.js");
-          const wrap = el("div", { class: "map-fig-strip" });
-          figs.slice(0, 3).forEach((name, i) => {
+          const wrap = el("div", { class: "map-fig-grid" });
+          figs.slice(0, 9).forEach((name, i) => {
             const img = el("img", {
               src: `/papers/${encodeURIComponent(n.id)}/figures/${encodeURIComponent(name)}`,
               loading: "lazy", alt: name, title: name,
@@ -891,13 +929,21 @@ export async function render(view) {
             img.addEventListener("click", () => openLightbox(n.id, figs, i));
             wrap.append(img);
           });
-          figBox.append(
-            el("h4", { class: "map-facet-head", text: `图表(共 ${figs.length} 张,点开看大图)` }),
+          const sec = el("div", { class: "map-panel-sec" }, [
+            el("h4", { class: "map-facet-head",
+              text: `图表(${figs.length} 张 · 点开后可左右翻看全部)` }),
             wrap,
-          );
+          ]);
+          if (figs.length > 9) {
+            const more = el("a", { href: `#/papers/${n.id}`, class: "map-fig-more",
+              text: `在详情页看全部 ${figs.length} 张 →` });
+            sec.append(more);
+          }
+          figBox.append(sec);
         })
         .catch(() => { /* 图表是锦上添花:拉不到就不显示 */ });
 
+      // 3) 材料 → 方法 → 条件 → 主题:干净词条(引语在拆解页带原文锚点,不在卡上拖半句)
       const elemBox = el("div");
       elemBox.append(el("p", { class: "muted", text: "要素加载中…" }));
       body.append(elemBox);
@@ -906,19 +952,33 @@ export async function render(view) {
           clear(elemBox);
           const groups = d.groups || [];
           if (!groups.length) {
-            elemBox.append(el("p", { class: "muted", text: "该篇要素未构建。" }));
+            elemBox.append(el("p", { class: "muted", text: "该篇要素未构建(到待构建区或右上角状态角标一键构建)。" }));
             return;
           }
-          for (const g of groups) {
-            elemBox.append(el("h4", { class: "map-facet-head", text: g.facet }));
-            for (const it of g.items || []) {
-              const q = String(it.quote || "");
-              elemBox.append(el("div", { class: "map-elem" }, [
-                el("span", { class: "tag", text: it.display_name || it.element_id }),
-                q ? el("div", { class: "map-quote", text: "“" + q.slice(0, 80) + (q.length > 80 ? "…" : "") + "”" }) : null,
-              ]));
-            }
+          const byFacet = new Map(groups.map((g) => [g.facet, g.items || []]));
+          const chip = (it, tip) => ({
+            text: (it.display_name || it.element_id)
+              + (it.values && it.values.length ? " = " + it.values.map((v) => v.raw || v).join(" / ") : ""),
+            tip: tip || String(it.quote || ""),
+          });
+          const methodChips = [];
+          for (const f of METHOD_FACETS) {
+            for (const it of byFacet.get(f) || []) methodChips.push(chip(it));
           }
+          const otherChips = [];
+          for (const g of groups) {
+            if (FACET_SKIP.has(g.facet)) continue;
+            for (const it of g.items || []) otherChips.push(chip(it, `${g.facet}:${it.quote || ""}`));
+          }
+          for (const sec of [
+            chipsRow("材料", (byFacet.get("material") || []).map((it) => chip(it))),
+            chipsRow("方法", methodChips),
+            chipsRow("条件", (byFacet.get("condition") || []).map((it) => chip(it))),
+            chipsRow("主题", (byFacet.get("topic") || []).map((it) => chip(it, "本库主题标签(地图分区依据)"))),
+            chipsRow("其他要素", otherChips),
+          ]) if (sec) elemBox.append(sec);
+          elemBox.append(el("p", { class: "map-side-meta",
+            text: "每个词条都有原文出处——进拆解页可看逐字引语并展开原文段。" }));
         })
         .catch((err) => {
           clear(elemBox);

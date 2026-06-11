@@ -112,6 +112,14 @@ a.back { font-size: 13px; color: #0969da; text-decoration: none; }
 .map-fig-strip { display: flex; gap: 6px; margin: 4px 0 6px; }
 .map-fig-strip img { width: 31%; height: 64px; object-fit: contain; background: #fff;
   border: 1px solid #d0d7de; border-radius: 6px; cursor: zoom-in; }
+/* 论文卡可读版(标题→做什么→发现→图表→材料/方法/条件/主题) */
+.map-about { font-size: 13px; line-height: 1.65; margin: 2px 0 4px; }
+.map-findings { margin: 2px 0 4px; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+.map-findings li { margin-bottom: 4px; }
+.map-fig-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 4px 0 4px; }
+.map-fig-grid img { width: 100%; height: 76px; object-fit: contain; background: #fff;
+  border: 1px solid #d0d7de; border-radius: 6px; cursor: zoom-in; }
+.map-fig-more { display: inline-block; font-size: 12px; margin-top: 2px; }
 /* 检索屏(Wave-3 ⑤):命中头行 + 可点的共现行 */
 .results-head { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
 .co-row { cursor: pointer; border-radius: 6px; }
