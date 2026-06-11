@@ -118,7 +118,7 @@ async function renderDetail(view, id) {
   if ((p.authors || []).length) {
     const hasSenior = p.authors.some((a) => a.is_senior);
     view.append(el("p", { class: "pmeta", text: t("map.authors_label")
-      + p.authors.map((a) => a.name + (a.is_senior ? "★" : "")).join("、")
+      + p.authors.map((a) => a.name + (a.is_senior ? "★" : "")).join(t("map.enum_comma"))
       + (hasSenior ? t("papers.senior_note") : "") }));
   }
   if ((p.institutions || []).length) {
