@@ -383,12 +383,12 @@ export async function render(view) {
       tracePath(hull);
       ctx.stroke();
       ctx.restore();
-      if (g.members.length >= 3) {
-        let gx = 0, gy = 0;
-        for (const [x, y] of hull) { gx += x; gy += y; }
-        gx /= hull.length; gy /= hull.length;
-        const t = trunc(g.name, 16);
-        ctx.font = "600 10px 'Segoe UI','Microsoft YaHei',sans-serif";
+      // 同大区规则:屏上面积够大(放大)才显示,显示即完整名;缩小自动隐去
+      const gs = hull.length >= 3 ? hullStats(hull) : null;
+      if (gs && gs.area >= 1800) {
+        const gx = gs.cx, gy = gs.cy;
+        const t = g.name;
+        ctx.font = "600 11px 'Segoe UI','Microsoft YaHei',sans-serif";
         const w = ctx.measureText(t).width;
         const box = { x0: gx - w / 2, x1: gx + w / 2, y0: gy - 18, y1: gy - 6 };
         if (!instLabelBoxes.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) {
