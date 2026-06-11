@@ -972,21 +972,54 @@ export async function render(view) {
     ]);
   }
 
-  // 机构团面板:研究面貌(机构×要素)+ 成员清单(点机构团而非洲时弹出)
+  // 机构团面板:研究面貌(机构×要素)+ 成员按课题组(资深作者)分组
+  //(课题组屏撤并入此处:洲→机构→课题组→论文 四级一张图)
+  let groupsCache = null; // /groups 响应(pid → 组名),一次会话拉一次
+  async function paperGroupMap() {
+    if (groupsCache) return groupsCache;
+    try {
+      const d = await getJSON("/groups");
+      const m = new Map();
+      for (const grp of d.groups || []) {
+        const anchor = grp.anchor_name || grp.anchor_identity || "?";
+        for (const p of grp.papers || []) m.set(p.paper_id, anchor);
+      }
+      groupsCache = m;
+    } catch (err) { groupsCache = new Map(); }
+    return groupsCache;
+  }
+
   function showInstGroup(g) {
     openPanel(`${g.name}(${g.members.length} 篇)`, (body) => {
       const iid = g.members[0] && g.members[0].institution_id;
       if (iid) body.append(institutionSection(iid));
-      const ms = g.members.slice().sort((a, b) => (a.year || 9999) - (b.year || 9999));
-      for (const n of ms) {
-        const rec = titles[n.id] || {};
-        const row = el("div", { class: "map-row" }, [
-          el("div", {}, [el("b", { text: paperLabel(n.id, 70) })]),
-          el("div", { class: "map-side-meta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
-        ]);
-        row.addEventListener("click", () => showPaper(n));
-        body.append(row);
-      }
+      const slot = el("div", {}, [el("p", { class: "muted", text: "成员加载中…" })]);
+      body.append(slot);
+      paperGroupMap().then((pg) => {
+        clear(slot);
+        const byGroup = new Map();
+        for (const n of g.members) {
+          const k = pg.get(n.id) || "";
+          if (!byGroup.has(k)) byGroup.set(k, []);
+          byGroup.get(k).push(n);
+        }
+        const keys = [...byGroup.keys()].sort((a, b) =>
+          (byGroup.get(b).length - byGroup.get(a).length) || a.localeCompare(b));
+        for (const k of keys) {
+          const ms = byGroup.get(k).sort((a, b) => (a.year || 9999) - (b.year || 9999));
+          slot.append(el("h4", { class: "map-facet-head",
+            text: k ? `${k} 组(${ms.length} 篇)` : `其他成员(${ms.length} 篇)` }));
+          for (const n of ms) {
+            const rec = titles[n.id] || {};
+            const row = el("div", { class: "map-row" }, [
+              el("div", {}, [el("b", { text: paperLabel(n.id, 70) })]),
+              el("div", { class: "map-side-meta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
+            ]);
+            row.addEventListener("click", () => showPaper(n));
+            slot.append(row);
+          }
+        }
+      });
     });
   }
 
