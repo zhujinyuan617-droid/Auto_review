@@ -420,16 +420,65 @@ def create_app(
             raise HTTPException(status_code=404, detail="reading block not found")
         return ctx
 
+    def _png_size(path: Path) -> tuple[int, int] | None:
+        """PNG 头 16-24 字节即宽高;非 PNG(或读不出)回 None,不参与尺寸过滤。"""
+        try:
+            with path.open("rb") as f:
+                head = f.read(24)
+        except OSError:
+            return None
+        if head[:8] != b"\x89PNG\r\n\x1a\n" or len(head) < 24:
+            return None
+        w = int.from_bytes(head[16:20], "big")
+        h = int.from_bytes(head[20:24], "big")
+        return (w, h) if w and h else None
+
+    def _junk_figure(size: tuple[int, int] | None, page: int | None, caption: str) -> bool:
+        """出版社杂项判定(用户拍板:彻底不显示):logo/角标/CrossMark 全是
+        无图注的小图或首页小图;首页大图(graphical abstract)与有图注的一律保留。"""
+        if caption:
+            return False
+        if size:
+            w, h = size
+            if min(w, h) < 80 or w * h < 16_000:
+                return True
+            big = w * h >= 120_000
+        else:
+            big = False
+        return page == 1 and not big
+
     @app.get("/papers/{paper_id}/figures")
     def paper_figures(paper_id: str) -> dict[str, Any]:
-        fig_dir = _paper_dir_or_404(paper_id) / "figures"
+        pdir = _paper_dir_or_404(paper_id)
+        fig_dir = pdir / "figures"
         if not fig_dir.is_dir():
-            return {"paper_id": paper_id, "figures": []}
-        names = sorted(
-            p.name for p in fig_dir.iterdir()
-            if p.is_file() and p.suffix.lower() in _FIGURE_EXTS
-        )
-        return {"paper_id": paper_id, "figures": names}
+            return {"paper_id": paper_id, "figures": [], "hidden": 0}
+        # content_blocks.json 的 figure 块自带 页码/图注/文件对应(Docling 产物)
+        meta: dict[str, dict[str, Any]] = {}
+        try:
+            doc = json.loads((pdir / "content_blocks.json").read_text(encoding="utf-8"))
+            for b in (doc.get("blocks") or []):
+                if b.get("type") == "figure" and b.get("image_path"):
+                    try:
+                        page = int(b.get("page_no") or 0) or None
+                    except (TypeError, ValueError):
+                        page = None
+                    meta[Path(str(b["image_path"])).name] = {
+                        "page": page, "caption": str(b.get("caption") or "").strip()}
+        except (OSError, ValueError):
+            pass
+        figures: list[dict[str, Any]] = []
+        hidden = 0
+        for p in sorted(fig_dir.iterdir()):
+            if not (p.is_file() and p.suffix.lower() in _FIGURE_EXTS):
+                continue
+            m = meta.get(p.name, {})
+            if _junk_figure(_png_size(p), m.get("page"), m.get("caption", "")):
+                hidden += 1
+                continue
+            figures.append({"name": p.name, "page": m.get("page"),
+                            "caption": m.get("caption", "")})
+        return {"paper_id": paper_id, "figures": figures, "hidden": hidden}
 
     @app.get("/papers/{paper_id}/figures/{name}")
     def paper_figure_file(paper_id: str, name: str):

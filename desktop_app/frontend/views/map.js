@@ -944,10 +944,10 @@ export async function render(view) {
           if (!figs.length) return;
           const { openLightbox } = await import("/assets/views/figures.js");
           const wrap = el("div", { class: "map-fig-grid" });
-          figs.slice(0, 9).forEach((name, i) => {
+          figs.slice(0, 9).forEach((f, i) => {
             const img = el("img", {
-              src: `/papers/${encodeURIComponent(n.id)}/figures/${encodeURIComponent(name)}`,
-              loading: "lazy", alt: name, title: name,
+              src: `/papers/${encodeURIComponent(n.id)}/figures/${encodeURIComponent(f.name)}`,
+              loading: "lazy", alt: f.caption || f.name, title: f.caption || f.name,
             });
             img.addEventListener("error", () => img.remove());
             img.addEventListener("click", () => openLightbox(n.id, figs, i));

@@ -88,24 +88,26 @@ export async function render(view, params) {
       ])
     );
     if (figures.length === 0) {
-      gridWrap.append(el("p", { class: "muted", text: "该篇无已抽取图片(library/<id>/figures/ 目录为空或不存在)。" }));
+      gridWrap.append(el("p", { class: "muted", text: "该篇无可展示图片(出版社杂项已过滤)。" }));
       return;
     }
     const grid = el("div", { style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;" });
-    figures.forEach((name, i) => {
+    figures.forEach((f, i) => {
+      const name = f.name || f; // 兼容旧字符串形态
+      const cap = (f.caption || "") || (f.page ? `第 ${f.page} 页插图` : name);
       const img = el("img", {
         src: figURL(id, name),
         loading: "lazy",
-        alt: name,
+        alt: cap,
         style: "width:100%;height:140px;object-fit:contain;background:#fff;display:block;",
       });
       const cell = el("div", { class: "card-box", style: "padding:8px;cursor:zoom-in;" }, [
         img,
         el("div", {
           class: "pmeta",
-          style: "margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
-          title: name,
-          text: name,
+          style: "margin-top:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;",
+          title: cap,
+          text: cap,
         }),
       ]);
       img.addEventListener("error", () => {
@@ -148,7 +150,7 @@ export function openLightbox(paperId, figures, startIndex) {
   const img = el("img", {
     style: "max-width:92vw;max-height:84vh;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.5);cursor:default;",
   });
-  const caption = el("div", { style: "color:#fff;margin-top:10px;font-size:13px;text-align:center;" });
+  const caption = el("div", { style: "color:#fff;margin-top:10px;font-size:13px;text-align:center;max-width:84vw;" });
   const stage = el("div", { style: "display:flex;flex-direction:column;align-items:center;" }, [img, caption]);
 
   const btnStyle = "position:absolute;top:50%;transform:translateY(-50%);font-size:28px;line-height:1;" +
@@ -163,9 +165,12 @@ export function openLightbox(paperId, figures, startIndex) {
 
   function show(n) {
     i = (n + figures.length) % figures.length;
-    img.setAttribute("src", figURL(paperId, figures[i]));
-    img.setAttribute("alt", figures[i]);
-    caption.textContent = figures[i] + " (" + (i + 1) + "/" + figures.length + ")";
+    const f = figures[i];
+    const name = (f && f.name) || f;
+    const cap = (f && f.caption) || (f && f.page ? `第 ${f.page} 页插图` : "");
+    img.setAttribute("src", figURL(paperId, name));
+    img.setAttribute("alt", cap || name);
+    caption.textContent = (cap ? cap + " · " : "") + "(" + (i + 1) + "/" + figures.length + ")";
   }
   function close() {
     document.removeEventListener("keydown", onKey);

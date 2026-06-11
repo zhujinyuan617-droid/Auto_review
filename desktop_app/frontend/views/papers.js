@@ -175,16 +175,22 @@ async function renderDetail(view, id) {
       const grid = el("div", {
         style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;",
       });
-      figs.forEach((name, i) => {
+      figs.forEach((f, i) => {
+        const cap = f.caption || (f.page ? `第 ${f.page} 页插图` : f.name);
         const img = el("img", {
-          src: "/papers/" + encodeURIComponent(id) + "/figures/" + encodeURIComponent(name),
-          loading: "lazy", alt: name, title: name,
+          src: "/papers/" + encodeURIComponent(id) + "/figures/" + encodeURIComponent(f.name),
+          loading: "lazy", alt: cap, title: cap,
           style: "width:100%;height:110px;object-fit:contain;background:#fff;" +
             "border:1px solid #d0d7de;border-radius:6px;cursor:zoom-in;",
         });
         img.addEventListener("error", () => img.remove());
         img.addEventListener("click", () => openLightbox(id, figs, i));
-        grid.append(img);
+        const cell = el("div", {}, [img, el("div", {
+          class: "pmeta",
+          style: "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;",
+          title: cap, text: cap,
+        })]);
+        grid.append(cell);
       });
       sec.append(grid);
       view.append(sec);
