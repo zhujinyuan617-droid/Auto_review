@@ -970,6 +970,24 @@ export async function render(view) {
     ]);
   }
 
+  // 机构团面板:研究面貌(机构×要素)+ 成员清单(点机构团而非洲时弹出)
+  function showInstGroup(g) {
+    openPanel(`${g.name}(${g.members.length} 篇)`, (body) => {
+      const iid = g.members[0] && g.members[0].institution_id;
+      if (iid) body.append(institutionSection(iid));
+      const ms = g.members.slice().sort((a, b) => (a.year || 9999) - (b.year || 9999));
+      for (const n of ms) {
+        const rec = titles[n.id] || {};
+        const row = el("div", { class: "map-row" }, [
+          el("div", {}, [el("b", { text: paperLabel(n.id, 70) })]),
+          el("div", { class: "map-side-meta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
+        ]);
+        row.addEventListener("click", () => showPaper(n));
+        body.append(row);
+      }
+    });
+  }
+
   function showPaper(n) {
     S.selectedId = n.id;
     S.haloId = null;
@@ -1407,6 +1425,8 @@ export async function render(view) {
     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
     const n = nodeAt(mx, my);
     if (n) return showPaper(n);
+    const gi = instGroupAt(mx, my);
+    if (gi) return showInstGroup(gi);
     const c = clusterAt(mx, my);
     if (c) return showRegion(c);
     clearSelection(); // 点空白:清选中、收面板(搜索高亮用 Esc 清)

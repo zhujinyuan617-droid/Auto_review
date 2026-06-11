@@ -266,7 +266,8 @@ def _institution_lens_payload(config: AppConfig) -> dict:
          "year": years.get(pid),
          "institution": ((reg.get(primary_of[pid]) or {}).get(
              "display_name", str(primary_of[pid]).rsplit("/", 1)[-1])
-             if primary_of[pid] else None)}
+             if primary_of[pid] else None),
+         "institution_id": primary_of[pid]}
         for pid in sorted(paper_insts)
     ]
     counts: dict[str, int] = {}
