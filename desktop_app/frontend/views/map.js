@@ -367,6 +367,7 @@ export async function render(view) {
     const instLabelBoxes = [];
     for (const g of S.instGroups || []) {
       const hull = convexHull(g.members.map((n) => [SX(n.x), SY(n.y)]));
+      g._hull = hull; // 悬停命中用(团级 tooltip)
       tracePath(hull);
       ctx.fillStyle = "rgba(255,255,255,0.35)";
       ctx.strokeStyle = "rgba(255,255,255,0.35)";
@@ -519,13 +520,34 @@ export async function render(view) {
   }
   function hideTooltip() { tooltip.hidden = true; }
 
+  function instGroupAt(mx, my) {
+    if (S.lens !== "institution") return null;
+    const order = (S.instGroups || []).slice().sort((a, b) => a.members.length - b.members.length);
+    for (const g of order) {
+      const hull = g._hull;
+      if (!hull || !hull.length) continue;
+      if (hull.length === 1) {
+        if (Math.hypot(hull[0][0] - mx, hull[0][1] - my) <= 20) return g;
+      } else if (hull.length === 2) {
+        if (distToSeg([mx, my], hull[0], hull[1]) <= 14) return g;
+      } else if (pointInPoly([mx, my], hull)) {
+        return g;
+      }
+    }
+    return null;
+  }
+
   function updateHover(mx, my, clientX, clientY) {
     const n = nodeAt(mx, my);
-    const c = n ? null : clusterAt(mx, my);
+    const g = n ? null : instGroupAt(mx, my); // 机构团命中优先于洲(小区在大区里)
+    const c = n || g ? null : clusterAt(mx, my);
     const prev = S.hover;
-    S.hover = n ? { type: "node", node: n } : c ? { type: "cluster", cluster: c } : null;
+    S.hover = n ? { type: "node", node: n }
+      : g ? { type: "inst", group: g }
+      : c ? { type: "cluster", cluster: c } : null;
     const same = ((prev && prev.node) || null) === ((S.hover && S.hover.node) || null)
-      && ((prev && prev.cluster) || null) === ((S.hover && S.hover.cluster) || null);
+      && ((prev && prev.cluster) || null) === ((S.hover && S.hover.cluster) || null)
+      && ((prev && prev.group) || null) === ((S.hover && S.hover.group) || null);
     if (!same) S.dirty = true;
     canvas.style.cursor = S.hover ? "pointer" : "default";
     if (n) {
@@ -536,6 +558,9 @@ export async function render(view) {
       const sub = [n.institution, rec.journal, n.lit ? null : (UNLIT_REASON[S.lens] || "未点亮")]
         .filter(Boolean).join(" · ");
       showTooltip(clientX, clientY, head + (sub ? "\n" + sub : ""));
+    } else if (S.hover && S.hover.type === "inst") {
+      const g2 = S.hover.group;
+      showTooltip(clientX, clientY, `${g2.name} · ${g2.members.length} 篇(机构团)`);
     } else if (c) {
       showTooltip(clientX, clientY,
         `${c.label} · ${c.members.length} 篇${c.description ? "\n" + c.description : ""}`);
