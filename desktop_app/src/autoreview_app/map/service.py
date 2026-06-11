@@ -32,7 +32,7 @@ from .layout import (
 )
 
 # v4(Wave-3 ①):元素镜头布点换确定性径向(权重向心+区内年轮);灰点收「待构建」区
-PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "radial-v4.1", "max_cluster": 30}
+PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "radial-v4.2", "max_cluster": 30}
 LENS_DF_CAP = {"topic": 0.35, "method": 0.30, "material": 0.30}  # 密核由 split 的语义分组兜底
 ARRIVAL_BATCH_GAP_MIN = 30
 UNBUILT_CLUSTER = "__unbuilt__"
@@ -149,11 +149,13 @@ def _element_lens_payload(config: AppConfig, lens: str, force: bool = False) -> 
         labels = clusters_map
     else:
         labels = label_propagation(sorted(feats), edges)
-        labels = split_oversized(labels, edges, max_size=PARAMS["max_cluster"],
+        # 区容量自适应(用户拍板):上限 ≈ 库的 1/4(小库保底 30)——
+        # 地图自然呈现四五个大主题,而不是几十个被硬切到 30 的小区
+        cap = max(PARAMS["max_cluster"], (len(feats) + 3) // 4)
+        labels = split_oversized(labels, edges, max_size=cap,
                                  features=feats, weights=idf(feats))
         # min_size=2:两篇的小桶是有效分组(审计点赞的 LBM/PR-EOS 小袋),只折叠纯单篇
-        labels = _merge_tiny_clusters(labels, edges, min_size=2,
-                                      max_size=PARAMS["max_cluster"])
+        labels = _merge_tiny_clusters(labels, edges, min_size=2, max_size=cap)
         built = _papers_with_any_elements(config)
         for pid, fs in feats.items():
             if not fs:  # 灰点:真没构建 → 待构建区;有要素但无此类 → 无此类区(如综述)
