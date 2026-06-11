@@ -286,6 +286,7 @@ export const ZH = {
   "search.cooc_add_title": "加入组合",
   "search.table_paper_col": "论文",
   "search.export_csv": "导出 CSV",
+  "search.block_anchor_title": "跳到拆解页并定位这一段原文",
   // elements_stats 屏(全库统计)
   "stats.title": "全库统计({n} 篇有要素)",
   "stats.see_all": "看全部 →",

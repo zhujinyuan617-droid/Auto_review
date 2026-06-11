@@ -310,7 +310,7 @@ export async function render(view, params) {
         el("div", {}, [el("span", { class: "tag", text: m.display_name }), ` ${m.surface}`]),
         el("div", { class: "quote-box", text: `"${m.quote}"` }),
         el("a", { href: `#/papers/${p.paper_id}/decompose/${encodeURIComponent(m.reading_block_id)}`,
-          text: t("papers.block_anchor_label"), title: t("papers.block_anchor_title") }),
+          text: t("papers.block_anchor_label"), title: t("search.block_anchor_title") }),
       );
     }
   }
