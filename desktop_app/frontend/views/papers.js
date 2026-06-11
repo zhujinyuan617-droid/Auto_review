@@ -1,5 +1,6 @@
 import { getJSON } from "/assets/api.js";
 import { el, clear, loading, errorState } from "/assets/ui.js";
+import { t } from "/assets/i18n.js";
 
 // render() dispatches the three Papers sub-routes:
 //   []                          -> list
@@ -15,7 +16,7 @@ export async function render(view, params) {
 }
 
 function pdfButton(id) {
-  const btn = el("button", { text: "打开 PDF", title: "在新窗口打开原文 PDF" });
+  const btn = el("button", { text: t("map.btn_pdf"), title: t("papers.open_pdf_title") });
   btn.addEventListener("click", () => window.open("/papers/" + encodeURIComponent(id) + "/pdf", "_blank"));
   return btn;
 }
@@ -30,11 +31,11 @@ async function renderList(view) {
   }
   const papers = data.papers || [];
   clear(view);
-  const search = el("input", { class: "search", placeholder: "搜索标题 / 期刊…" });
-  const sortSel = el("select", { title: "排序" }, [
-    el("option", { value: "new", text: "最新优先" }),
-    el("option", { value: "old", text: "最旧优先" }),
-    el("option", { value: "title", text: "标题 A–Z" }),
+  const search = el("input", { class: "search", placeholder: t("papers.search_placeholder") });
+  const sortSel = el("select", { title: t("papers.sort_title") }, [
+    el("option", { value: "new", text: t("papers.sort_new") }),
+    el("option", { value: "old", text: t("papers.sort_old") }),
+    el("option", { value: "title", text: t("papers.sort_title_az") }),
   ]);
   const list = el("div", { class: "paper-list" });
 
@@ -59,7 +60,7 @@ async function renderList(view) {
       (p) => !f || (p.title || "").toLowerCase().includes(f) || (p.journal || "").toLowerCase().includes(f)
     ));
     if (rows.length === 0) {
-      list.append(el("p", { class: "muted", text: "无匹配" }));
+      list.append(el("p", { class: "muted", text: t("papers.no_match") }));
       return;
     }
     for (const p of rows) {
@@ -67,7 +68,7 @@ async function renderList(view) {
         el("a", { class: "paper-row", href: "#/papers/" + p.paper_id }, [
           el("span", { class: "ptitle" }, [
             p.title || p.paper_id,
-            isReview(p) ? el("span", { class: "tag review-tag", text: "综述" }) : null,
+            isReview(p) ? el("span", { class: "tag review-tag", text: t("papers.tag_review") }) : null,
           ]),
           el("span", { class: "pmeta", text: [p.year, p.journal].filter(Boolean).join(" · ") }),
         ])
@@ -78,7 +79,7 @@ async function renderList(view) {
   search.addEventListener("input", () => draw(search.value));
   sortSel.addEventListener("change", () => draw(search.value));
   view.append(
-    el("h2", { text: `藏书 ${papers.length} 篇` }),
+    el("h2", { text: t("papers.library_count", { n: papers.length }) }),
     el("div", { style: "display:flex;gap:8px;align-items:center;" }, [search, sortSel]),
     list
   );
@@ -98,7 +99,7 @@ async function renderDetail(view, id) {
   try {
     p = await getJSON("/papers/" + encodeURIComponent(id));
   } catch (err) {
-    if (err.code === 404) return errorState(view, "未找到论文 " + id, null);
+    if (err.code === 404) return errorState(view, t("papers.not_found", { id }), null);
     return errorState(view, err.message, () => renderDetail(view, id));
   }
   clear(view);
@@ -107,25 +108,25 @@ async function renderDetail(view, id) {
   if (p.doi) {
     if (metaP.textContent) metaP.append(" · ");
     metaP.append(el("a", { href: "https://doi.org/" + p.doi, target: "_blank",
-      rel: "noopener", text: "doi:" + p.doi, title: "打开出版社页面" }));
+      rel: "noopener", text: "doi:" + p.doi, title: t("papers.doi_title") }));
   }
   view.append(
-    el("a", { class: "back", href: "#/papers" }, "← 返回藏书"),
+    el("a", { class: "back", href: "#/papers" }, t("papers.back_to_list")),
     el("h2", { text: p.title || p.paper_id }),
     metaP
   );
   if ((p.authors || []).length) {
     const hasSenior = p.authors.some((a) => a.is_senior);
-    view.append(el("p", { class: "pmeta", text: "作者:"
+    view.append(el("p", { class: "pmeta", text: t("map.authors_label")
       + p.authors.map((a) => a.name + (a.is_senior ? "★" : "")).join("、")
-      + (hasSenior ? "(★资深作者)" : "") }));
+      + (hasSenior ? t("papers.senior_note") : "") }));
   }
   if ((p.institutions || []).length) {
-    view.append(el("p", { class: "pmeta", text: "机构:" + p.institutions.join(" · ") }));
+    view.append(el("p", { class: "pmeta", text: t("map.institutions_label") + p.institutions.join(" · ") }));
   }
-  const btn = el("button", { text: "查看拆解 →" });
+  const btn = el("button", { text: t("papers.btn_decompose") });
   btn.addEventListener("click", () => { location.hash = "#/papers/" + id + "/decompose"; });
-  const mapBtn = el("button", { text: "在地图上看这篇", title: "跳回知识地图并定位到它所在的区" });
+  const mapBtn = el("button", { text: t("papers.btn_map"), title: t("papers.btn_map_title") });
   mapBtn.addEventListener("click", () => {
     try { sessionStorage.setItem("mapFocusPaper", id); } catch (err) { /* 隐私模式跳过 */ }
     location.hash = "#/map";
@@ -133,10 +134,10 @@ async function renderDetail(view, id) {
   view.append(el("div", { class: "section", style: "display:flex;gap:8px;" }, [btn, pdfButton(id), mapBtn]));
 
   const card = el("div", { class: "card-box" });
-  if (p.objective) card.append(el("div", { class: "section" }, [el("h3", { text: "目标" }), el("p", { text: p.objective })]));
+  if (p.objective) card.append(el("div", { class: "section" }, [el("h3", { text: t("papers.section_objective") }), el("p", { text: p.objective })]));
   const findings = p.main_findings || [];
   if (findings.length) {
-    const sec = el("div", { class: "section" }, [el("h3", { text: "主要发现" })]);
+    const sec = el("div", { class: "section" }, [el("h3", { text: t("papers.section_findings") })]);
     const ul = el("ul");
     for (const f of findings) ul.append(el("li", { text: f }));
     sec.append(ul);
@@ -146,9 +147,9 @@ async function renderDetail(view, id) {
 
   // 研究要素(要素索引口径,与地图论文卡同一套词;未构建时退回旧卡片标签)
   const legacyRows = () => [
-    tagRow("研究对象", p.research_objects),
-    tagRow("方法", p.methods),
-    tagRow("领域", p.domain_tags),
+    tagRow(t("papers.legacy_objects"), p.research_objects),
+    tagRow(t("papers.legacy_methods"), p.methods),
+    tagRow(t("papers.legacy_domain"), p.domain_tags),
   ].filter(Boolean);
   try {
     const d = await getJSON("/papers/" + encodeURIComponent(id) + "/elements");
@@ -170,14 +171,14 @@ async function renderDetail(view, id) {
     });
     const by = new Map((d.groups || []).map((g) => [g.facet, g.items || []]));
     const rows = [
-      tagRow("材料", names(by.get("material"))),
-      tagRow("模拟方法", names(by.get("simulation"))),
-      tagRow("测量", names(by.get("measurement"))),
-      tagRow("表征", names(by.get("characterization"))),
-      tagRow("制备", names(by.get("preparation"))),
-      tagRow("分析", names(by.get("analysis"))),
-      tagRow("条件", names(by.get("condition"))),
-      tagRow("主题", names(by.get("topic"))),
+      tagRow(t("facet.material"), names(by.get("material"))),
+      tagRow(t("facet.simulation"), names(by.get("simulation"))),
+      tagRow(t("facet.measurement"), names(by.get("measurement"))),
+      tagRow(t("facet.characterization"), names(by.get("characterization"))),
+      tagRow(t("facet.preparation"), names(by.get("preparation"))),
+      tagRow(t("facet.analysis"), names(by.get("analysis"))),
+      tagRow(t("facet.condition"), names(by.get("condition"))),
+      tagRow(t("facet.topic"), names(by.get("topic"))),
     ].filter(Boolean);
     for (const r of rows.length ? rows : legacyRows()) card.append(r);
   } catch (err) {
@@ -189,12 +190,12 @@ async function renderDetail(view, id) {
     const figs = (await getJSON("/papers/" + encodeURIComponent(id) + "/figures")).figures || [];
     if (figs.length) {
       const { openLightbox } = await import("/assets/views/figures.js");
-      const sec = el("div", { class: "section" }, [el("h3", { text: `图表(${figs.length} 张,点开看大图)` })]);
+      const sec = el("div", { class: "section" }, [el("h3", { text: t("papers.figures_section", { n: figs.length }) })]);
       const grid = el("div", {
         style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;",
       });
       figs.forEach((f, i) => {
-        const cap = f.caption || (f.page ? `第 ${f.page} 页插图` : f.name);
+        const cap = f.caption || (f.page ? t("papers.page_figure", { n: f.page }) : f.name);
         const img = el("img", {
           src: "/papers/" + encodeURIComponent(id) + "/figures/" + encodeURIComponent(f.name),
           loading: "lazy", alt: cap, title: cap,
@@ -227,7 +228,7 @@ function blockList(title, blocks) {
 function blockAnchor(paperId, rbId) {
   if (!rbId) return null;
   const wrap = el("span", { class: "block-anchor" });
-  const a = el("a", { href: "javascript:void 0", text: "原文段 ↗", title: "就地展开这一段原文" });
+  const a = el("a", { href: "javascript:void 0", text: t("papers.block_anchor_label"), title: t("papers.block_anchor_title") });
   const slot = el("div", { class: "block-ctx" });
   slot.hidden = true;
   let loaded = false;
@@ -235,7 +236,7 @@ function blockAnchor(paperId, rbId) {
     slot.hidden = !slot.hidden;
     if (loaded || slot.hidden) return;
     loaded = true;
-    slot.append(el("p", { class: "muted", text: "加载原文段…" }));
+    slot.append(el("p", { class: "muted", text: t("papers.block_loading") }));
     try {
       const d = await getJSON(`/papers/${encodeURIComponent(paperId)}/blocks/${encodeURIComponent(rbId)}`);
       clear(slot);
@@ -243,7 +244,7 @@ function blockAnchor(paperId, rbId) {
     } catch (err) {
       clear(slot);
       slot.append(el("p", { class: "error", text: err.code === 404
-        ? "原文段不存在(可能来自旧版索引)" : "原文段加载失败:" + err.message }));
+        ? t("papers.block_not_found") : t("papers.block_load_fail") + err.message }));
     }
   });
   wrap.append(a, slot);
@@ -253,19 +254,19 @@ function blockAnchor(paperId, rbId) {
 function blockContextNodes(d) {
   const b = d.block || {};
   const out = [
-    el("div", { class: "pmeta", text: [b.section_title || "原文",
-      b.page_start != null ? `第 ${b.page_start} 页` : null].filter(Boolean).join(" · ") }),
-    el("p", { text: b.text || "(空段)" }),
+    el("div", { class: "pmeta", text: [b.section_title || t("papers.section_title_fallback"),
+      b.page_start != null ? t("papers.page_n", { n: b.page_start }) : null].filter(Boolean).join(" · ") }),
+    el("p", { text: b.text || t("papers.block_empty") }),
   ];
   if (d.next && d.next.text) {
-    out.push(el("p", { class: "muted", text: "下一段:" + String(d.next.text).slice(0, 140) + "…" }));
+    out.push(el("p", { class: "muted", text: t("papers.next_block_prefix") + String(d.next.text).slice(0, 140) + "…" }));
   }
   return out;
 }
 
 function atomList(title, atoms, paperId) {
-  const sec = el("div", { class: "section" }, [el("h3", { text: `${title} (${atoms.length})` })]);
-  if (atoms.length === 0) { sec.append(el("p", { class: "muted", text: "无" })); return sec; }
+  const sec = el("div", { class: "section" }, [el("h3", { text: t("papers.atom_list_head", { title, n: atoms.length }) })]);
+  if (atoms.length === 0) { sec.append(el("p", { class: "muted", text: t("papers.empty") })); return sec; }
   for (const a of atoms) {
     const head = a.values && a.values.length
       ? `${a.minimal_claim || ""} = ${a.values.join(" / ")}`
@@ -287,7 +288,7 @@ async function renderDecomposition(view, id, focusBlockId) {
   try {
     d = await getJSON("/papers/" + encodeURIComponent(id) + "/decomposition");
   } catch (err) {
-    if (err.code === 404) return errorState(view, "未找到论文 " + id, null);
+    if (err.code === 404) return errorState(view, t("papers.not_found", { id }), null);
     return errorState(view, err.message, () => renderDecomposition(view, id, focusBlockId));
   }
   const c = d.card || {};
@@ -296,36 +297,36 @@ async function renderDecomposition(view, id, focusBlockId) {
   const srcBadge = d.source
     ? el("span", {
         class: "tag",
-        title: d.source === "elements" ? "素材来自要素抽取链(逐字原文锚定)" : "素材来自旧版原子链(待要素链补抽后自动切换)",
-        text: d.source === "elements" ? "素材:要素链" : "素材:旧链 legacy",
+        title: d.source === "elements" ? t("papers.src_elements_title") : t("papers.src_legacy_title"),
+        text: d.source === "elements" ? t("papers.src_elements") : t("papers.src_legacy"),
       })
     : null;
   view.append(
-    el("a", { class: "back", href: "#/papers/" + id }, "← 返回详情"),
-    el("h2", { text: (c.title || id) + " · 拆解" }),
+    el("a", { class: "back", href: "#/papers/" + id }, t("papers.back_to_detail")),
+    el("h2", { text: t("papers.decompose_title", { title: c.title || id }) }),
     el("div", { class: "section", style: "display:flex;gap:8px;align-items:center;" }, [pdfButton(id), srcBadge])
   );
 
   // 深链定位:从检索/统计的"原文段↗"跳来时,顶端直接展开该原文段
   if (focusBlockId) {
     const banner = el("div", { class: "card-box block-focus" }, [
-      el("h3", { style: "margin-top:0;", text: "原文段定位" }),
+      el("h3", { style: "margin-top:0;", text: t("papers.block_focus_title") }),
     ]);
     view.append(banner);
     getJSON(`/papers/${encodeURIComponent(id)}/blocks/${encodeURIComponent(focusBlockId)}`)
       .then((bd) => banner.append(...blockContextNodes(bd)))
       .catch((err) => banner.append(el("p", { class: "error", text: err.code === 404
-        ? "该原文段不存在(可能来自旧版索引)。" : "原文段加载失败:" + err.message })));
+        ? t("papers.block_not_found") : t("papers.block_load_fail") + err.message })));
   }
 
-  const abstract = blockList("摘要", d.abstract_blocks);
+  const abstract = blockList(t("papers.section_abstract"), d.abstract_blocks);
   if (abstract) view.append(abstract);
-  const intro = blockList("引言提出的问题", d.intro_blocks);
+  const intro = blockList(t("papers.section_intro"), d.intro_blocks);
   if (intro) view.append(intro);
 
   const glossary = d.glossary || [];
   if (glossary.length) {
-    const sec = el("div", { class: "section" }, [el("h3", { text: "术语表" })]);
+    const sec = el("div", { class: "section" }, [el("h3", { text: t("papers.section_glossary") })]);
     for (const g of glossary) {
       const term = g.term || g.name || "";
       const def = g.definition || g.meaning || "";
@@ -334,15 +335,15 @@ async function renderDecomposition(view, id, focusBlockId) {
     view.append(sec);
   }
 
-  view.append(atomList("用了哪些分析", d.analyses || [], id));
+  view.append(atomList(t("papers.section_analyses"), d.analyses || [], id));
   if ((d.conditions || []).length) {
-    view.append(atomList("在什么条件下(温压/浓度等)", d.conditions, id));
+    view.append(atomList(t("papers.section_conditions"), d.conditions, id));
   }
-  view.append(atomList("得到哪些结果", d.results || [], id));
+  view.append(atomList(t("papers.section_results"), d.results || [], id));
 
   const rel = d.result_relations || [];
-  const relSec = el("div", { class: "section" }, [el("h3", { text: `结果间关联 (${rel.length})` })]);
-  if (rel.length === 0) relSec.append(el("p", { class: "muted", text: "无" }));
+  const relSec = el("div", { class: "section" }, [el("h3", { text: t("papers.section_relations", { n: rel.length }) })]);
+  if (rel.length === 0) relSec.append(el("p", { class: "muted", text: t("papers.empty") }));
   for (const r of rel) {
     // 依据原子的内部编号不再上屏(后台溯源字段;屏上各条目就在上方两节里)
     relSec.append(
