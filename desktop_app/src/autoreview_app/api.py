@@ -107,6 +107,10 @@ class ParallelRequest(BaseModel):
     pro: int
 
 
+class LanguageRequest(BaseModel):
+    ui_language: str
+
+
 class ElementsQuery(BaseModel):
     element_ids: list[str]
     role: str = "used"
@@ -288,6 +292,18 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return {**stored, "limits": app_settings.PARALLEL_LIMITS}
+
+    @app.get("/settings/language")
+    def get_language() -> dict[str, str]:
+        return {"ui_language": app_settings.get_ui_language(config.app_settings_path)}
+
+    @app.put("/settings/language")
+    def put_language(req: LanguageRequest) -> dict[str, str]:
+        try:
+            stored = app_settings.set_ui_language(config.app_settings_path, req.ui_language)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"ui_language": stored}
 
     @app.get("/settings/setup-manifest")
     def setup_manifest() -> dict[str, Any]:

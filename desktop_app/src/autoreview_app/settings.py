@@ -91,3 +91,26 @@ def parallel_for_model(path: Path, model: str) -> int:
     'pro' uses the pro tier, everything else (incl. unknown) the flash tier."""
     tier = "pro" if "pro" in (model or "").lower() else "flash"
     return get_parallel(path)[tier]
+
+
+# ---------------------------------------------------------------------------
+# 界面语言(双语版面,spec 2026-06-09 map §11):普通 JSON 设置,默认中文。
+# ---------------------------------------------------------------------------
+
+UI_LANGUAGES = ("zh", "en")
+DEFAULT_UI_LANGUAGE = "zh"
+
+
+def get_ui_language(path: Path) -> str:
+    value = _read_settings_file(path).get("ui_language")
+    return value if value in UI_LANGUAGES else DEFAULT_UI_LANGUAGE
+
+
+def set_ui_language(path: Path, language: str) -> str:
+    if language not in UI_LANGUAGES:
+        raise ValueError(f"ui_language must be one of {UI_LANGUAGES}")
+    data = _read_settings_file(path)
+    data["ui_language"] = language
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return language
