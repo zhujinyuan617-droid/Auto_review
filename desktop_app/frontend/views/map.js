@@ -1011,6 +1011,15 @@ export async function render(view) {
       body.append(aboutBox);
       getJSON(`/papers/${encodeURIComponent(n.id)}`)
         .then((p) => {
+          // 作者(★资深)与机构(与详情页同口径)
+          if ((p.authors || []).length) {
+            aboutBox.append(el("div", { class: "map-side-meta", text: "作者:"
+              + p.authors.map((a) => a.name + (a.is_senior ? "★" : "")).join("、") }));
+          }
+          if ((p.institutions || []).length) {
+            aboutBox.append(el("div", { class: "map-side-meta",
+              text: "机构:" + p.institutions.join(" · ") }));
+          }
           if (p.objective) {
             aboutBox.append(el("div", { class: "map-panel-sec" }, [
               el("h4", { class: "map-facet-head", text: "这篇做什么" }),
