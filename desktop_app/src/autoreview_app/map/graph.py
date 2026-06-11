@@ -14,7 +14,9 @@ from pathlib import Path
 # 镜头 → 参与相似度的 facet 子集;time/institution 镜头不走要素相似度(见 service)。
 LENS_FACETS: dict[str, tuple[str, ...]] = {
     "topic": ("topic",),
-    "method": ("preparation", "measurement", "simulation"),
+    # 与论文卡/区画像的"方法"口径一致(五类);曾漏 analysis/characterization,
+    # 4 篇用了分析/表征方法的论文被误标"无方法类要素"
+    "method": ("preparation", "measurement", "simulation", "characterization", "analysis"),
     "material": ("material",),
 }
 
