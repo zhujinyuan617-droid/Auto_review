@@ -120,6 +120,8 @@ a.back { font-size: 13px; color: #0969da; text-decoration: none; }
 .map-fig-grid img { width: 100%; height: 76px; object-fit: contain; background: #fff;
   border: 1px solid #d0d7de; border-radius: 6px; cursor: zoom-in; }
 .map-fig-more { display: inline-block; font-size: 12px; margin-top: 2px; }
+.map-read-first { font-size: 11px; color: #fff; background: #2e8b6f; border-radius: 8px;
+  padding: 1px 7px; margin-right: 4px; white-space: nowrap; }
 /* 检索屏(Wave-3 ⑤):命中头行 + 可点的共现行 */
 .results-head { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
 .co-row { cursor: pointer; border-radius: 6px; }

@@ -624,27 +624,27 @@ export async function render(view) {
       });
   }
 
-  // ---- 区面板:该区年代跨度内库中首现的要素(GET /map/first-seen;Wave-3 ①
-  //      时间镜头退役后,"要素首现"的新家)。折叠 + 展开才拉数据 ----
-  function firstSeenSection(y0, y1) {
+  // ---- 区面板:本区工具的进场时间线(区内口径,Wave-3 跟进③):
+  //      只看本区论文用到的要素,各自在库内首现于何年。折叠 + 展开才拉数据 ----
+  function firstSeenSection(c) {
     const det = el("details", { class: "map-panel-sec" });
-    det.append(el("summary", { class: "map-facet-head", text: "该时期库内首现的要素" }));
+    det.append(el("summary", { class: "map-facet-head", text: "本区工具的进场时间线" }));
     const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
     det.append(slot);
     let loaded = false;
     det.addEventListener("toggle", () => {
       if (!det.open || loaded) return;
       loaded = true;
-      getJSON(`/map/first-seen?year_from=${y0}&year_to=${y1}`)
+      getJSON(`/map/first-seen?lens=${encodeURIComponent(S.lens)}&cluster=${encodeURIComponent(c.id)}`)
         .then((d) => {
           clear(slot);
           const list = d.elements || [];
-          if (!list.length) return slot.append(el("p", { class: "muted", text: "该年代没有首现的要素。" }));
+          if (!list.length) return slot.append(el("p", { class: "muted", text: "本区论文没有可定年的要素。" }));
           for (const e2 of list) {
             slot.append(el("div", {
               class: "map-first-seen-row",
-              text: `${e2.name}(首现 ${e2.first_year} · 后续 ${Math.max(0, (e2.papers_total || 1) - 1)} 篇)`,
-              title: `首现于 ${paperLabel(e2.first_paper, 60)}`,
+              text: `${e2.first_year} · ${e2.name}(库内共 ${e2.papers_total} 篇在用)`,
+              title: `库内首现于 ${paperLabel(e2.first_paper, 60)}`,
             }));
           }
         })
@@ -717,10 +717,49 @@ export async function render(view) {
     return box;
   }
 
+  // 区共性画像(瘦身版,用户实测反馈):只列 ≥2 篇共用的要素,叙事序
+  // 材料 → 方法 → 主题;单篇专属折叠成一行计数(condition/finding 后端已撤出)。
   function regionElementsSection(c) {
-    return facetProfileSection("本区高频要素",
-      `/map/region-elements?lens=${encodeURIComponent(S.lens)}&cluster=${encodeURIComponent(c.id)}`,
-      "本区论文的要素未构建。");
+    const box = el("div", { class: "map-panel-sec" }, [
+      el("h4", { class: "map-facet-head", text: "本区共性(≥2 篇共用的要素)" }),
+    ]);
+    const slot = el("div", {}, [el("p", { class: "muted", text: "加载中…" })]);
+    box.append(slot);
+    getJSON(`/map/region-elements?lens=${encodeURIComponent(S.lens)}&cluster=${encodeURIComponent(c.id)}`)
+      .then((d) => {
+        clear(slot);
+        const facets = d.facets || {};
+        const row = (label, items) => {
+          if (!items || !items.length) return;
+          slot.append(el("div", { class: "map-side-meta", text: label }));
+          const wrap = el("div", { class: "map-chip-wrap" });
+          for (const it of items) wrap.append(el("span", { class: "tag", text: `${it.name}×${it.papers}` }));
+          slot.append(wrap);
+        };
+        const methods = [];
+        for (const f of METHOD_FACETS) methods.push(...(facets[f] || []));
+        methods.sort((a, b) => b.papers - a.papers);
+        row("材料", facets.material);
+        row("方法", methods);
+        row("主题", facets.topic);
+        for (const f of Object.keys(facets)) {
+          if (f === "material" || f === "topic" || METHOD_FACETS.includes(f)) continue;
+          row(f, facets[f]);
+        }
+        if (!slot.childNodes.length) {
+          slot.append(el("p", { class: "muted", text: "本区没有 ≥2 篇共用的要素(成员各做各的,靠主题相聚)。" }));
+        }
+        if (d.singles) {
+          slot.append(el("p", { class: "map-side-meta",
+            text: `另有 ${d.singles} 项仅单篇出现的要素——点下方成员逐篇看。` }));
+        }
+      })
+      .catch((err) => {
+        clear(slot);
+        slot.append(el("p", { class: "muted", text: err.code === 503
+          ? "要素索引未构建(点右上角状态角标一键构建)。" : "要素画像加载失败:" + err.message }));
+      });
+    return box;
   }
 
   function showRegion(c) {
@@ -735,14 +774,13 @@ export async function render(view) {
       if (S.hasBackendClusters && !c.misc && !c.nodata) {
         body.append(regionElementsSection(c));
       }
-      // 年代跨度(年轮口径:区心最老、区缘最新)+ 该时期库内首现要素(折叠懒加载)
+      // 年代跨度(年轮口径:区心最老、区缘最新)+ 本区工具进场时间线(折叠懒加载)
       const years = c.members.map((n) => n.year).filter((y) => y != null);
       if (years.length) {
-        const y0 = Math.min(...years), y1 = Math.max(...years);
         body.append(el("div", { class: "map-side-meta",
-          text: `年代跨度 ${y0}–${y1}(区内年轮:靠区心更老,靠区缘更新)` }));
-        if (!c.misc && !c.nodata) body.append(firstSeenSection(y0, y1));
+          text: `年代跨度 ${Math.min(...years)}–${Math.max(...years)}(区内年轮:靠区心更老,靠区缘更新)` }));
       }
+      if (!c.misc && !c.nodata && S.hasBackendClusters) body.append(firstSeenSection(c));
       // 机构镜头(Wave-3 ④ 五大洲):本洲高产机构,每行展开看"机构×要素"研究面貌
       if (S.lens === "institution" && c.top_institutions && c.top_institutions.length) {
         body.append(continentInstitutionsSection(c));
@@ -751,41 +789,27 @@ export async function render(view) {
         body.append(el("p", { class: "muted",
           text: "这些论文还没有机构信息(作者机构未拉取,或机构国别未能识别)。" }));
       }
-      const routeSlot = el("div");
-      body.append(routeSlot);
-      if (S.hasBackendClusters) {
-        const btn = el("button", { class: "map-btn", text: "阅读路线" });
-        btn.addEventListener("click", async () => {
-          btn.disabled = true;
-          try {
-            const r = await getJSON(`/map/route?lens=${encodeURIComponent(S.lens)}&cluster=${encodeURIComponent(c.id)}`);
-            clear(routeSlot);
-            const box = el("div", { class: "map-route" }, [el("div", { text: r.hint || "建议从这几篇入手:" })]);
-            for (const pid of r.start_with || []) {
-              const item = el("div", { class: "map-route-item", text: paperLabel(pid, 56) });
-              item.addEventListener("click", () => { const n = S.byId.get(pid); if (n) showPaper(n); });
-              box.append(item);
-            }
-            routeSlot.append(box);
-          } catch (err) {
-            showToast("路线获取失败:" + err.message);
-          }
-          btn.disabled = false;
-        });
-        body.append(el("div", { class: "map-paper-actions" }, [btn]));
-      }
-      for (const n of c.members) { // 已按核心度(size)降序
+      // 成员列表 = 阅读路线本身(原"阅读路线"按钮的口径并入):
+      // 综述优先 → 关联紧密度(size)降序;第一篇给"从这篇读起"标记。
+      const isReview = (pid) => /review/i.test(String((titles[pid] || {}).paper_type || ""));
+      const ordered = c.members.slice().sort((a, b) =>
+        (isReview(b.id) - isReview(a.id)) || ((b.size || 0) - (a.size || 0)));
+      body.append(el("div", { class: "map-side-meta",
+        text: "成员(按建议阅读顺序:综述优先,其次与同区关联最紧的)" }));
+      ordered.forEach((n, i) => {
         const rec = titles[n.id] || {};
         const row = el("div", { class: "map-row" }, [
           el("div", {}, [
+            i === 0 ? el("span", { class: "map-read-first", text: "从这篇读起 " }) : null,
             el("b", { text: paperLabel(n.id, 70) }),
+            isReview(n.id) ? el("span", { class: "map-side-meta", text: " (综述)" }) : null,
             n.lit ? null : el("span", { class: "map-side-meta", text: " (未点亮)" }),
           ]),
           el("div", { class: "map-side-meta", text: [rec.year, rec.journal].filter(Boolean).join(" · ") }),
         ]);
         row.addEventListener("click", () => showPaper(n));
         body.append(row);
-      }
+      });
     });
     regionTitle(c); // openPanel 只接受纯文本标题,区标题行(徽标+改名)在这之后自绘
   }

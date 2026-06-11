@@ -257,3 +257,41 @@ def test_region_elements_profile(tmp_path: Path):
     sim = body["facets"]["simulation"]
     assert sim[0]["name"] == "GCMC" and sim[0]["papers"] == 2
     assert body["facets"]["material"][0]["papers"] == 1
+
+
+def test_region_elements_slim_and_scoped_first_seen(tmp_path: Path):
+    # 区面板瘦身(用户反馈):≥3 篇的区只列 ≥2 篇共用;×1 折叠计数;
+    # condition/finding 整组撤出;首现支持区内口径(只看本区论文的要素)
+    client, cfg = _client(tmp_path)
+    for pid, year in (("S01", 2015), ("S02", 2018), ("S03", 2020), ("S04", 2021)):
+        _write_card(cfg.library_dir, pid, topic_ids=["elem:topic/a"], year=year)
+    _write_card(cfg.library_dir, "S05", topic_ids=["elem:topic/b"], year=2019)  # 区外
+    rows = [(pid, "elem:simulation/gcmc", "simulation", "GCMC", "q", f"{pid}-RB-1", "used", 0, "[]")
+            for pid in ("S01", "S02", "S03")]
+    rows += [
+        ("S01", "elem:material/kaolinite", "material", "kaolinite", "q", "S01-RB-2", "used", 0, "[]"),
+        ("S02", "elem:condition/t300", "condition", "300 K", "q", "S02-RB-3", "used", 0, "[]"),
+        ("S05", "elem:simulation/lbm", "simulation", "LBM", "q", "S05-RB-1", "used", 0, "[]"),
+    ]
+    _write_elements_db(cfg, rows)
+    conn = sqlite3.connect(cfg.elements_db)
+    conn.executemany("INSERT INTO elements VALUES (?,?,?,?,?,?)", [
+        ("elem:simulation/gcmc", "simulation", "gcmc", "GCMC", "[]", 0),
+        ("elem:material/kaolinite", "material", "kaolinite", "Kaolinite", "[]", 0),
+        ("elem:condition/t300", "condition", "t300", "300 K", "[]", 0),
+        ("elem:simulation/lbm", "simulation", "lbm", "LBM", "[]", 0),
+    ])
+    conn.commit()
+    conn.close()
+    nodes = client.get("/map?lens=topic").json()["nodes"]
+    cluster = next(n["cluster"] for n in nodes if n["id"] == "S01")
+    body = client.get(f"/map/region-elements?lens=topic&cluster={cluster}").json()
+    assert list(body["facets"]) == ["simulation"]  # ×1 的 material 不上榜;condition 整组撤出
+    assert body["facets"]["simulation"][0] == {"name": "GCMC", "papers": 3}
+    assert body["singles"] == 1  # kaolinite 折叠计数(condition 不计入)
+
+    fs = client.get(f"/map/first-seen?lens=topic&cluster={cluster}").json()
+    names = [e["name"] for e in fs["elements"]]
+    assert "LBM" not in names  # 区外论文的要素不进时间线
+    assert set(names) == {"GCMC", "Kaolinite", "300 K"}
+    assert fs["elements"][0]["first_year"] == 2015  # 按进场年升序

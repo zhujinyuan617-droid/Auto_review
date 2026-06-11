@@ -479,13 +479,20 @@ def create_app(
 
     @app.get("/map/first-seen")
     def map_first_seen(element_id: str | None = None,
-                       year_from: int | None = None, year_to: int | None = None) -> dict[str, Any]:
+                       year_from: int | None = None, year_to: int | None = None,
+                       lens: str | None = None, cluster: str | None = None) -> dict[str, Any]:
         _elements_db_or_503()
         if element_id:
             return map_service.element_first_seen(config, element_id)
+        if lens and cluster:
+            # 区内口径:本区论文用到的要素,各自在库内首现于何年(工具进场时间线)
+            _check_lens(lens)
+            payload = map_service.lens_payload(config, lens)
+            papers = [n["id"] for n in payload.get("nodes") or [] if n.get("cluster") == cluster]
+            return map_service.first_seen_in_range(config, 0, 9999, papers_scope=papers)
         if year_from is not None and year_to is not None:
             return map_service.first_seen_in_range(config, year_from, year_to)
-        raise HTTPException(status_code=400, detail="element_id or year_from+year_to required")
+        raise HTTPException(status_code=400, detail="element_id / lens+cluster / year_from+year_to required")
 
     @app.get("/map/region-elements")
     def map_region_elements(lens: str = "topic", cluster: str = "") -> dict[str, Any]:

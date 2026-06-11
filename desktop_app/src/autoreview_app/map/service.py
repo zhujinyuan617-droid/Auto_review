@@ -660,8 +660,13 @@ def element_first_seen(config: AppConfig, element_id: str) -> dict:
             "papers_total": len(papers)}
 
 
-def first_seen_in_range(config: AppConfig, year_from: int, year_to: int, top_n: int = 12) -> dict:
-    """该年代区间内"首次出现"的要素,按总使用论文数排序(时间镜头年代带面板)。"""
+def first_seen_in_range(config: AppConfig, year_from: int, year_to: int, top_n: int = 12,
+                        papers_scope: list[str] | None = None) -> dict:
+    """要素首现。两种口径:
+    - 无 papers_scope:该年代区间内"库内首次出现"的要素,按使用论文数排序(全库口径);
+    - 有 papers_scope(区面板,Wave-3 跟进③):只看这些论文用到的要素,
+      首现年仍按全库算(诚实的"库内首现"),忽略年代区间,按首现年升序
+      ——讲"这个小领域的工具是哪年进场的"。"""
     years = _paper_years(config)
     conn = sqlite3.connect(config.elements_db)
     conn.execute("PRAGMA busy_timeout=5000")
@@ -674,16 +679,23 @@ def first_seen_in_range(config: AppConfig, year_from: int, year_to: int, top_n: 
     papers_of: dict[str, list[str]] = {}
     for eid, pid in rows:
         papers_of.setdefault(eid, []).append(pid)
+    scope = set(papers_scope) if papers_scope is not None else None
     out = []
     for eid, papers in papers_of.items():
+        if scope is not None and not (scope & set(papers)):
+            continue
         dated = sorted((years[p], p) for p in papers if p in years)
         if not dated:
             continue
         fy, fp = dated[0]
-        if year_from <= fy <= year_to:
-            out.append({"element_id": eid, "name": names.get(eid, eid),
-                        "first_year": fy, "first_paper": fp, "papers_total": len(papers)})
-    out.sort(key=lambda d: (-d["papers_total"], d["element_id"]))
+        if scope is None and not (year_from <= fy <= year_to):
+            continue
+        out.append({"element_id": eid, "name": names.get(eid, eid),
+                    "first_year": fy, "first_paper": fp, "papers_total": len(papers)})
+    if scope is None:
+        out.sort(key=lambda d: (-d["papers_total"], d["element_id"]))
+    else:
+        out.sort(key=lambda d: (d["first_year"], -d["papers_total"], d["element_id"]))
     return {"year_from": year_from, "year_to": year_to, "elements": out[:top_n]}
 
 
@@ -721,12 +733,31 @@ def institution_elements(config: AppConfig, inst_id: str, top_per_facet: int = 5
             "facets": _facet_profile(config, papers, top_per_facet)}
 
 
+# 区画像里整组撤掉的 facet:condition/finding 几乎永远是单篇专属的长句,
+# 属于论文卡和拆解页,放区面板只会制造 ×1 噪声(用户实测反馈)。
+_PROFILE_SKIP_FACETS = {"condition", "finding"}
+
+
 def cluster_elements(config: AppConfig, lens: str, cluster: str, top_per_facet: int = 5) -> dict:
-    """区×要素画像(Wave-3 ②:全库统计屏的总览并入地图区面板)。"""
+    """区×要素画像(Wave-3 ②,瘦身版):只报"区共性"。
+
+    ≥3 篇的区只列 ≥2 篇共用的要素(×1 = 单篇特征,不是高频);
+    被滤掉的单篇要素只回个数,前端折叠成一行。"""
     payload = lens_payload(config, lens)
     papers = sorted(n["id"] for n in payload.get("nodes") or [] if n.get("cluster") == cluster)
+    full = _facet_profile(config, papers, top_per_facet=10_000)
+    min_n = 2 if len(papers) >= 3 else 1
+    facets: dict[str, list[dict]] = {}
+    singles = 0
+    for facet, items in full.items():
+        if facet in _PROFILE_SKIP_FACETS:
+            continue
+        kept = [it for it in items if it["papers"] >= min_n][:top_per_facet]
+        singles += sum(1 for it in items if it["papers"] < min_n)
+        if kept:
+            facets[facet] = kept
     return {"lens": lens, "cluster": cluster, "papers": len(papers),
-            "facets": _facet_profile(config, papers, top_per_facet)}
+            "facets": facets, "singles": singles}
 
 
 def route(config: AppConfig, lens: str, cluster: str) -> dict:
