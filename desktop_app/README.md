@@ -66,6 +66,9 @@ batches all executed 2026-06-10 (numbers in ISSUES I18; quality by sampling audi
   cooccurrence fold-in, send-hits-to-writing. Real-library smoke over HTTP:
   topic 25 clusters / institution 亚洲 191 · 北美洲 47 / PDF + block + region
   endpoints 200. Browser-side interactions NOT yet manually clicked.
+- **双语版面(2026-06-11,feat/bilingual-ui;map spec §11)**:设置页切 zh/en;界面文案全进词典
+  (355 键×2,含守卫测试);AI 区名/描述一次调用产双语,人工区名最高优先;要素英文名不翻。
+  离线 283 全绿;浏览器走查未做。
 
 ## What it does (HTTP API surface)
 
