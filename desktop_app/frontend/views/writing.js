@@ -37,9 +37,15 @@ function checkSection() {
 }
 
 async function loadAngles(container) {
-  let a;
-  try { a = await getJSON("/writing/angles"); }
-  catch (err) { return errorState(container, err.message, () => loadAngles(container)); }
+  let a, titles = {};
+  try {
+    const [resp, lib] = await Promise.all([
+      getJSON("/writing/angles"),
+      getJSON("/library/papers").catch(() => ({ papers: [] })),
+    ]);
+    a = resp;
+    titles = Object.fromEntries((lib.papers || []).map((p) => [p.paper_id, p.title || ""]));
+  } catch (err) { return errorState(container, err.message, () => loadAngles(container)); }
   clear(container);
   container.append(el("h3", { text: "候选角度" }));
   const tension = a.tension || [];
@@ -49,8 +55,19 @@ async function loadAngles(container) {
     container.append(el("p", { class: "muted", text: "无候选 —— 关系/概念数据未配置或为空。" }));
     return;
   }
+  // 张力:前台用标题(去S化);点击填入"共享概念",不是论文号
+  const tt = (pid) => {
+    const s = titles[pid] || pid || "";
+    return s.length > 44 ? s.slice(0, 44) + "…" : s;
+  };
+  const sharedWords = (t) => {
+    const sh = t.shared || {};
+    return [...(sh.topic || []), ...(sh.method || [])];
+  };
   container.append(angleGroup("张力(可能的矛盾)", tension,
-    (t) => `${t.a || ""} ↔ ${t.b || ""} : ${t.why || ""}`, (t) => `${t.a || ""} vs ${t.b || ""}`));
+    (t) => `${tt(t.a)} ↔ ${tt(t.b)}` + (sharedWords(t).length
+      ? ` · 共享:${sharedWords(t).slice(0, 3).join("、")}` : (t.why ? ` : ${t.why}` : "")),
+    (t) => sharedWords(t).slice(0, 2).join(" + ")));
   container.append(angleGroup("空白(概念覆盖薄)", gaps,
     (g) => `${g.concept || ""}(gap ${g.gap_score != null ? g.gap_score : "?"} · 核心 ${g.n_central != null ? g.n_central : "?"} 篇)`,
     (g) => g.concept || ""));

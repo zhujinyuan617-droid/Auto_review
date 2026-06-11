@@ -1,5 +1,5 @@
 import { getJSON, postJSON, putJSON, pollJob } from "/assets/api.js";
-import { el, clear, loading, errorState } from "/assets/ui.js";
+import { el, clear, loading, errorState, facetLabel } from "/assets/ui.js";
 
 // 知识地图首页(SP-Map §1/§2/§4 前端面)。
 //
@@ -750,7 +750,7 @@ export async function render(view) {
         const keys = Object.keys(facets);
         if (!keys.length) return slot.append(el("p", { class: "muted", text: emptyText }));
         for (const f of keys) {
-          slot.append(el("div", { class: "map-side-meta", text: f }));
+          slot.append(el("div", { class: "map-side-meta", text: facetLabel(f) }));
           const wrap = el("div", { class: "map-chip-wrap" });
           for (const it of facets[f] || []) {
             wrap.append(el("span", { class: "tag", text: `${it.name}×${it.papers}` }));
@@ -821,7 +821,7 @@ export async function render(view) {
         row("主题", facets.topic);
         for (const f of Object.keys(facets)) {
           if (f === "material" || f === "topic" || METHOD_FACETS.includes(f)) continue;
-          row(f, facets[f]);
+          row(facetLabel(f), facets[f]);
         }
         if (!slot.childNodes.length) {
           slot.append(el("p", { class: "muted", text: "本区没有 ≥2 篇共用的要素(成员各做各的,靠主题相聚)。" }));
@@ -1150,7 +1150,7 @@ export async function render(view) {
           for (const g of groups) {
             if (FACET_SKIP.has(g.facet)) continue;
             for (const it of byFacet.get(g.facet) || []) {
-              otherChips.push(chip(it, `${g.facet}:${it.quote || ""}`));
+              otherChips.push(chip(it, `${facetLabel(g.facet)}:${it.quote || ""}`));
             }
           }
           for (const sec of [

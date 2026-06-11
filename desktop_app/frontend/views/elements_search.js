@@ -1,5 +1,5 @@
 import { getJSON, postJSON } from "/assets/api.js";
-import { el, clear, empty, errorState, loading } from "/assets/ui.js";
+import { el, clear, empty, errorState, loading, facetLabel } from "/assets/ui.js";
 
 // 屏A 检索 = 三栏工作台 + 搜索顶栏 + 列表⇄表格切换(spec §8)。
 // v1.1 联动计数(map-home spec §4c):每次选中集变化 POST /elements/refine,
@@ -117,39 +117,50 @@ export async function render(view, params) {
     return det;
   }
 
+  function renderFacet(f, into) {
+    let items = f.top.map((item) => ({ ...item, facet: f.id, n: countOf(item) }));
+    if (treeFilter) {
+      items = items.filter((it) => (it.display_name || "").toLowerCase().includes(treeFilter)
+        || it.id.toLowerCase().includes(treeFilter));
+      if (!items.length) return; // 整个 facet 无命中就不画
+    }
+    items.sort((a, b) => b.n - a.n || (a.display_name || "").localeCompare(b.display_name || ""));
+    into.append(el("h4", { text: `${facetLabel(f.id)}(${f.total_elements})` }));
+    if (treeFilter) { // 过滤时平铺所有命中项,不折叠
+      for (const it of items) into.append(itemLabel(it));
+      return;
+    }
+    const sel = items.filter((it) => isSelected(it.id));
+    const rest = items.filter((it) => !isSelected(it.id));
+    const hot = rest.filter((it) => it.n >= 2);
+    const ones = rest.filter((it) => it.n === 1);
+    const zeros = rest.filter((it) => it.n === 0);
+    for (const it of sel) into.append(itemLabel(it)); // 已选置顶,永远可见
+    for (const it of hot.slice(0, TOP_VISIBLE)) into.append(itemLabel(it));
+    const hidden = Math.max(hot.length - TOP_VISIBLE, 0) + ones.length + zeros.length;
+    if (!hidden) return;
+    const det = fold(`展开全部 (${hidden})`, openAll, f.id);
+    for (const it of hot.slice(TOP_VISIBLE)) det.append(itemLabel(it));
+    if (ones.length) { // 长尾分层:各只命中 1 篇的条目再收一级
+      const sub = fold(`其余 ${ones.length} 项(各 1 篇)`, openOnes, f.id);
+      for (const it of ones) sub.append(itemLabel(it));
+      det.append(sub);
+    }
+    for (const it of zeros) det.append(itemLabel(it)); // 零结果沉到组末
+    into.append(det);
+  }
+
   function drawTree() {
     clear(treeBody);
-    for (const f of facets) {
-      let items = f.top.map((item) => ({ ...item, facet: f.id, n: countOf(item) }));
-      if (treeFilter) {
-        items = items.filter((it) => (it.display_name || "").toLowerCase().includes(treeFilter)
-          || it.id.toLowerCase().includes(treeFilter));
-        if (!items.length) continue; // 整个 facet 无命中就不画
-      }
-      items.sort((a, b) => b.n - a.n || (a.display_name || "").localeCompare(b.display_name || ""));
-      treeBody.append(el("h4", { text: `${f.id}(${f.total_elements})` }));
-      if (treeFilter) { // 过滤时平铺所有命中项,不折叠
-        for (const it of items) treeBody.append(itemLabel(it));
-        continue;
-      }
-      const sel = items.filter((it) => isSelected(it.id));
-      const rest = items.filter((it) => !isSelected(it.id));
-      const hot = rest.filter((it) => it.n >= 2);
-      const ones = rest.filter((it) => it.n === 1);
-      const zeros = rest.filter((it) => it.n === 0);
-      for (const it of sel) treeBody.append(itemLabel(it)); // 已选置顶,永远可见
-      for (const it of hot.slice(0, TOP_VISIBLE)) treeBody.append(itemLabel(it));
-      const hidden = Math.max(hot.length - TOP_VISIBLE, 0) + ones.length + zeros.length;
-      if (!hidden) continue;
-      const det = fold(`展开全部 (${hidden})`, openAll, f.id);
-      for (const it of hot.slice(TOP_VISIBLE)) det.append(itemLabel(it));
-      if (ones.length) { // 长尾分层:各只命中 1 篇的条目再收一级
-        const sub = fold(`其余 ${ones.length} 项(各 1 篇)`, openOnes, f.id);
-        for (const it of ones) sub.append(itemLabel(it));
-        det.append(sub);
-      }
-      for (const it of zeros) det.append(itemLabel(it)); // 零结果沉到组末
-      treeBody.append(det);
+    // 正式八类照常;proposed:*(AI 自创未转正,全库 40+ 个碎组)折叠成一组,治树爆长
+    const normal = facets.filter((f) => !String(f.id).startsWith("proposed:"));
+    const proposed = facets.filter((f) => String(f.id).startsWith("proposed:"));
+    for (const f of normal) renderFacet(f, treeBody);
+    if (proposed.length) {
+      const total = proposed.reduce((s, f) => s + (f.total_elements || 0), 0);
+      const det = fold(`AI 提议类·未审核(${proposed.length} 组 ${total} 项)`, openAll, "__proposed__");
+      for (const f of proposed) renderFacet(f, det);
+      if (det.childNodes.length > 1 || treeFilter === "") treeBody.append(det);
     }
   }
 
@@ -232,7 +243,7 @@ export async function render(view, params) {
       return;
     }
     for (const g of co.groups) {
-      detail.append(el("h4", { text: g.facet }));
+      detail.append(el("h4", { text: facetLabel(g.facet) }));
       for (const x of g.items.slice(0, 5)) {
         const row = el("div", { class: "bar-row co-row", title: "加入组合" }, [
           el("span", { class: "bar-label", text: x.display_name }),

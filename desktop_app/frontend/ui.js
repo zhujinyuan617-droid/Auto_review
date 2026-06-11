@@ -40,3 +40,18 @@ export function placeholder(node) {
   clear(node);
   node.append(el("p", { class: "muted", text: "(开发中)" }));
 }
+
+// facet 的人话标签(一份映射四处共用:检索树/共现/区画像/机构面貌/论文卡;
+// 双语版面批次会把这里换成词典查表)。proposed:* = AI 抽取自创、未人工转正的临时类。
+const FACET_LABELS = {
+  topic: "主题", material: "材料", simulation: "模拟方法", measurement: "测量",
+  characterization: "表征", preparation: "制备", analysis: "分析",
+  condition: "条件", finding: "发现", institution: "机构",
+};
+
+export function facetLabel(id) {
+  const k = String(id || "");
+  if (FACET_LABELS[k]) return FACET_LABELS[k];
+  if (k.startsWith("proposed:")) return "AI提议:" + k.slice(9);
+  return k;
+}
