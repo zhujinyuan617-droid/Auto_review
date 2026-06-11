@@ -32,7 +32,7 @@ from .layout import (
 )
 
 # v4(Wave-3 ①):元素镜头布点换确定性径向(权重向心+区内年轮);灰点收「待构建」区
-PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "radial-v4.2", "max_cluster": 30}
+PARAMS = {"top_k": 10, "iters": 150, "seed": 42, "algo": "radial-v4.3", "max_cluster": 30}
 LENS_DF_CAP = {"topic": 0.35, "method": 0.30, "material": 0.30}  # 密核由 split 的语义分组兜底
 ARRIVAL_BATCH_GAP_MIN = 30
 UNBUILT_CLUSTER = "__unbuilt__"
@@ -511,8 +511,11 @@ def _merge_tiny_clusters(labels: dict[str, str], edges: list[tuple[str, str, flo
             elif lb == c and la in big:
                 weight_to[la] = weight_to.get(la, 0.0) + w
         if max_size:
+            # 单篇并入给小幅超容余量(cap 的 5%,至少 1):防"最像的区正好满员
+            # → 被迫进零散"(S72/S91 案例);多篇小桶仍严格守容,防巨区复活
+            slack = max(1, max_size // 20) if len(members) == 1 else 0
             weight_to = {k: v for k, v in weight_to.items()
-                         if cur.get(k, 0) + len(members) <= max_size}
+                         if cur.get(k, 0) + len(members) <= max_size + slack}
         if weight_to:
             target = sorted(weight_to.items(), key=lambda t: (-t[1], t[0]))[0][0]
         else:

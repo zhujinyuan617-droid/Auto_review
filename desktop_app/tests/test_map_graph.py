@@ -126,17 +126,27 @@ def test_split_oversized_anchor_fallback_breaks_dense_core():
 
 
 def test_merge_tiny_respects_max_size_gate(tmp_path: Path):
-    """T4(opus 评审):小区不许喂给会超限的区——否则拆分被合并复原等于白拆。"""
+    """T4(opus 评审 + v4.3 余量):多篇小桶严守容量(拆分不被合并复原);
+    单篇允许 cap 的 5%(≥1)超容余量——防"最像的区正好满员→被迫零散"(S72/S91)。"""
     from autoreview_app.map.service import _merge_tiny_clusters
     labels = {"B1": "BIG", "B2": "BIG", "B3": "BIG", "B4": "BIG", "T1": "T"}
     edges = [("T1", "B1", 9.9)]
     # 无上限:并入 BIG
     out1 = _merge_tiny_clusters(labels, edges, min_size=2)
     assert out1["T1"] == "BIG"
-    # 上限 4:BIG 已满 → 拒收,T1 落零散组
+    # 上限 4:BIG 已满,但 T1 是单篇 → 余量放行(4+1)
     out2 = _merge_tiny_clusters(labels, edges, min_size=2, max_size=4)
-    assert out2["T1"] == "__misc__"
-    assert out2["B1"] == "BIG"
+    assert out2["T1"] == "BIG"
+    # 第二个单篇再来:余量已用尽 → 拒收落零散
+    labels3 = {**labels, "T2": "T2x"}
+    edges3 = [("T1", "B1", 9.9), ("T2", "B2", 8.8)]
+    out3 = _merge_tiny_clusters(labels3, edges3, min_size=2, max_size=4)
+    assert sorted([out3["T1"], out3["T2"]]) == ["BIG", "__misc__"]
+    # 两篇小桶面对满员 BIG:严格守容,整桶落零散(拆分不复原)
+    labels4 = {"B1": "BIG", "B2": "BIG", "B3": "BIG", "B4": "BIG", "P1": "P", "P2": "P"}
+    edges4 = [("P1", "B1", 9.9), ("P2", "B1", 9.9)]
+    out4 = _merge_tiny_clusters(labels4, edges4, min_size=3, max_size=4)
+    assert out4["P1"] == "__misc__" and out4["P2"] == "__misc__"
 
 
 def test_paper_features_topic_lens_reads_cards(tmp_path: Path):
