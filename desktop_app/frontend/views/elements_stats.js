@@ -113,7 +113,7 @@ async function drawDrawer(drawer, facet, item) {
       drawer.append(
         el("div", { class: "quote-box", text: `"${q.quote}"` }),
         el("a", { href: `#/papers/${p.paper_id}/decompose/${encodeURIComponent(q.reading_block_id)}`,
-          text: t("papers.block_anchor_label"), title: t("papers.block_anchor_title") }),
+          text: t("papers.block_anchor_label"), title: t("search.block_anchor_title") }),
       );
     }
   }

@@ -20,12 +20,12 @@ export async function render(view) {
 
   const counts = data.relation_counts || {};
   const types = Object.keys(counts);
-  const summary = el("p", { class: "muted", text: types.map((t) => `${t}:${counts[t]}`).join("  ·  ") });
+  const summary = el("p", { class: "muted", text: types.map((rel) => `${rel}:${counts[rel]}`).join("  ·  ") });
   view.append(summary);
 
   const select = el("select", { class: "search" });
   select.append(el("option", { value: "" }, t("network.all_relations")));
-  for (const t of types) select.append(el("option", { value: t }, t));
+  for (const rel of types) select.append(el("option", { value: rel }, rel));
 
   const list = el("div", { class: "paper-list" });
   function draw(filter) {
