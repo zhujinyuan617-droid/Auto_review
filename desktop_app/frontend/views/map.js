@@ -200,6 +200,18 @@ export async function render(view) {
       if (c) c.members.push(n);
     }
     for (const c of clusters) c.members.sort((a, b) => (b.size || 0) - (a.size || 0));
+    // 机构镜头:洲内按机构预分组(大区套小区的"小区",画子轮廓用)
+    S.instGroups = [];
+    if (p.lens === "institution") {
+      const by = new Map();
+      for (const n of nodes) {
+        if (!n.institution) continue;
+        const k = n.cluster + "|" + n.institution;
+        if (!by.has(k)) by.set(k, { name: n.institution, members: [] });
+        by.get(k).members.push(n);
+      }
+      S.instGroups = [...by.values()].filter((g) => g.members.length >= 2);
+    }
     S.nodes = nodes;
     S.clusters = clusters;
     S.byId = new Map(nodes.map((n) => [n.id, n]));
@@ -350,6 +362,44 @@ export async function render(view) {
       ctx.lineCap = "round";
       ctx.stroke();
       ctx.fill();
+    }
+    // 机构子轮廓(大区套小区):洲色块之上、点之下,浅描边 + 大团标机构名
+    const instLabelBoxes = [];
+    for (const g of S.instGroups || []) {
+      const hull = convexHull(g.members.map((n) => [SX(n.x), SY(n.y)]));
+      tracePath(hull);
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 18;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke();
+      ctx.fill();
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(90,100,115,0.55)";
+      tracePath(hull);
+      ctx.stroke();
+      ctx.restore();
+      if (g.members.length >= 3) {
+        let gx = 0, gy = 0;
+        for (const [x, y] of hull) { gx += x; gy += y; }
+        gx /= hull.length; gy /= hull.length;
+        const t = trunc(g.name, 16);
+        ctx.font = "600 10px 'Segoe UI','Microsoft YaHei',sans-serif";
+        const w = ctx.measureText(t).width;
+        const box = { x0: gx - w / 2, x1: gx + w / 2, y0: gy - 18, y1: gy - 6 };
+        if (!instLabelBoxes.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) {
+          instLabelBoxes.push(box);
+          ctx.textAlign = "center";
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = "rgba(255,255,255,0.9)";
+          ctx.strokeText(t, gx, gy - 10);
+          ctx.fillStyle = "rgba(70,80,95,0.95)";
+          ctx.fillText(t, gx, gy - 10);
+        }
+      }
     }
     // 点
     for (const n of S.nodes) {
