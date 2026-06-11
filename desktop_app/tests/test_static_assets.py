@@ -43,7 +43,7 @@ def test_settings_view_served(tmp_path: Path):
 def test_network_view_served(tmp_path: Path):
     response = _client(tmp_path).get("/assets/views/network.js")
     assert response.status_code == 200
-    assert "关系网" in response.text
+    assert "network.title" in response.text
 
 
 def test_writing_view_served(tmp_path: Path):
@@ -61,4 +61,4 @@ def test_import_view_served(tmp_path: Path):
 def test_groups_view_served(tmp_path: Path):
     response = _client(tmp_path).get("/assets/views/groups.js")
     assert response.status_code == 200
-    assert "课题组" in response.text
+    assert "groups.title" in response.text

@@ -1,5 +1,6 @@
 import { getJSON, postJSON } from "/assets/api.js";
 import { el, clear, empty, errorState, loading, facetLabel } from "/assets/ui.js";
+import { t } from "/assets/i18n.js";
 
 // 屏A 检索 = 三栏工作台 + 搜索顶栏 + 列表⇄表格切换(spec §8)。
 // v1.1 联动计数(map-home spec §4c):每次选中集变化 POST /elements/refine,
@@ -27,25 +28,25 @@ export async function render(view, params) {
     facets = ov.facets;
     recs = Object.fromEntries((lib.papers || []).map((p) => [p.paper_id, p]));
   } catch (err) {
-    if (err.code === 503) return empty(view, "尚未构建要素索引 — 回知识地图首页,点右上角状态角标一键构建。");
+    if (err.code === 503) return empty(view, t("search.no_index"));
     return errorState(view, err.message, () => render(view, params));
   }
   const titles = Object.fromEntries(Object.entries(recs).map(([k, p]) => [k, p.title || ""]));
 
   clear(view);
-  view.append(el("h2", { text: "要素检索" }));
-  const searchBox = el("input", { class: "search", placeholder: "搜要素:球磨 / XRD / GCMC …(回车选第一个命中)" });
+  view.append(el("h2", { text: t("search.title") }));
+  const searchBox = el("input", { class: "search", placeholder: t("search.search_placeholder") });
   const chipsRow = el("div");
   const layout = el("div", { class: "elements-layout" });
   const tree = el("div", { class: "facet-tree card-box" });
-  const treeFilterBox = el("input", { class: "search", placeholder: "过滤要素树…" });
+  const treeFilterBox = el("input", { class: "search", placeholder: t("search.tree_filter_placeholder") });
   const treeBody = el("div");
   tree.append(treeFilterBox, treeBody);
   const results = el("div", { class: "elements-results" });
   const detail = el("div", { class: "elements-detail card-box" });
   layout.append(tree, results, detail);
   view.append(searchBox, chipsRow, layout);
-  empty(detail, "点结果里的论文,看命中要素的逐字原文。");
+  empty(detail, t("search.detail_hint"));
 
   // 联动计数状态(render 级):counts=null 表示 refine 还没回来,树先用全库静态计数。
   let counts = null;
@@ -85,12 +86,12 @@ export async function render(view, params) {
       chipsRow.append(chip);
     }
     if (selected.length) {
-      const toggleBtn = el("button", { text: mode === "list" ? "表格模式" : "列表模式" });
+      const toggleBtn = el("button", { text: mode === "list" ? t("search.mode_table") : t("search.mode_list") });
       toggleBtn.addEventListener("click", () => { mode = mode === "list" ? "table" : "list"; runQuery(); });
       chipsRow.append(toggleBtn);
     }
     if (selected.length >= 2) {
-      const clearBtn = el("button", { text: "清空条件" });
+      const clearBtn = el("button", { text: t("search.clear_filters") });
       clearBtn.addEventListener("click", () => { selected = []; drawChips(); drawTree(); runQuery(); });
       chipsRow.append(clearBtn);
     }
@@ -139,10 +140,10 @@ export async function render(view, params) {
     for (const it of hot.slice(0, TOP_VISIBLE)) into.append(itemLabel(it));
     const hidden = Math.max(hot.length - TOP_VISIBLE, 0) + ones.length + zeros.length;
     if (!hidden) return;
-    const det = fold(`展开全部 (${hidden})`, openAll, f.id);
+    const det = fold(t("search.expand_all", { n: hidden }), openAll, f.id);
     for (const it of hot.slice(TOP_VISIBLE)) det.append(itemLabel(it));
     if (ones.length) { // 长尾分层:各只命中 1 篇的条目再收一级
-      const sub = fold(`其余 ${ones.length} 项(各 1 篇)`, openOnes, f.id);
+      const sub = fold(t("search.ones_fold", { n: ones.length }), openOnes, f.id);
       for (const it of ones) sub.append(itemLabel(it));
       det.append(sub);
     }
@@ -158,7 +159,7 @@ export async function render(view, params) {
     for (const f of normal) renderFacet(f, treeBody);
     if (proposed.length) {
       const total = proposed.reduce((s, f) => s + (f.total_elements || 0), 0);
-      const det = fold(`AI 提议类·未审核(${proposed.length} 组 ${total} 项)`, openAll, "__proposed__");
+      const det = fold(t("search.proposed_group", { groups: proposed.length, total }), openAll, "__proposed__");
       for (const f of proposed) renderFacet(f, det);
       if (det.childNodes.length > 1 || treeFilter === "") treeBody.append(det);
     }
@@ -168,7 +169,7 @@ export async function render(view, params) {
     const seq = ++querySeq;
     const ids = selected.map((s) => s.id);
     if (ids.length) loading(results);
-    else empty(results, "从左栏勾选要素,或在上方搜索 — 命中论文会列在这里。");
+    else empty(results, t("search.results_hint"));
     let refine, data;
     try {
       // refine 给左树计数 + 命中论文;query 给表格/详情要用的逐字 matches
@@ -183,16 +184,16 @@ export async function render(view, params) {
     }
     counts = refine.counts;
     drawTree(); // 联动:计数徽标 + 灰显沉底 + 折叠分层全量重算
-    if (!ids.length) { empty(detail, "点结果里的论文,看命中要素的逐字原文。"); return; }
+    if (!ids.length) { empty(detail, t("search.detail_hint")); return; }
     clear(results);
     // 命中头行:计数 + 送写作(Wave-3 ⑤:命中集一键带到写作屏出稿)
     const head = el("div", { class: "results-head" }, [
-      el("span", { class: "muted", text: `命中 ${refine.papers.length} 篇(AND 组合)` }),
+      el("span", { class: "muted", text: t("search.hits", { n: refine.papers.length }) }),
     ]);
     if (refine.papers.length) {
       const sendBtn = el("button", {
-        text: `送写作(${refine.papers.length} 篇)`,
-        title: "把这批命中论文带到写作屏出稿(可再删减)",
+        text: t("search.send_writing", { n: refine.papers.length }),
+        title: t("search.send_writing_title"),
       });
       sendBtn.addEventListener("click", () => {
         try {
@@ -207,7 +208,7 @@ export async function render(view, params) {
     const byId = new Map(data.papers.map((p) => [p.paper_id, p]));
     const rows = refine.papers.map((pid) => byId.get(pid) || { paper_id: pid, matches: [] });
     if (ids.length === 1) drawCooccurrence(selected[0]); // 单要素:右栏先给配套要素
-    else empty(detail, "点结果里的论文,看命中要素的逐字原文。");
+    else empty(detail, t("search.detail_hint"));
     if (mode === "table") return drawTable({ papers: rows });
     for (const p of rows) {
       const rec = recs[p.paper_id] || {};
@@ -227,8 +228,8 @@ export async function render(view, params) {
     const seq = ++coSeq;
     clear(detail);
     detail.append(
-      el("h3", { text: `「${s.name}」的配套要素` }),
-      el("p", { class: "muted", text: "同批命中论文里还出现的要素;点任一条加入组合继续收窄。" }),
+      el("h3", { text: t("search.cooc_title", { name: s.name }) }),
+      el("p", { class: "muted", text: t("search.cooc_hint") }),
     );
     let co;
     try {
@@ -239,13 +240,13 @@ export async function render(view, params) {
     }
     if (seq !== coSeq) return; // 用户已点了论文/换了选择
     if (!(co.groups || []).length) {
-      detail.append(el("p", { class: "muted", text: "没有配套要素。" }));
+      detail.append(el("p", { class: "muted", text: t("search.cooc_empty") }));
       return;
     }
     for (const g of co.groups) {
       detail.append(el("h4", { text: facetLabel(g.facet) }));
       for (const x of g.items.slice(0, 5)) {
-        const row = el("div", { class: "bar-row co-row", title: "加入组合" }, [
+        const row = el("div", { class: "bar-row co-row", title: t("search.cooc_add_title") }, [
           el("span", { class: "bar-label", text: x.display_name }),
           el("span", { class: "bar-count", text: `${x.n}/${co.m}` }),
         ]);
@@ -259,7 +260,7 @@ export async function render(view, params) {
 
   function drawTable(data) {
     // 屏上只展示标题(编号留在 CSV 导出里做数据对应)
-    const head = el("tr", {}, [el("th", { text: "论文" }),
+    const head = el("tr", {}, [el("th", { text: t("search.table_paper_col") }),
       ...selected.map((s) => el("th", { text: s.name }))]);
     const table = el("table", { class: "elements-table" }, [head]);
     for (const p of data.papers) {
@@ -273,7 +274,7 @@ export async function render(view, params) {
       tr.addEventListener("click", () => drawDetail(p));
       table.append(tr);
     }
-    const exportBtn = el("button", { text: "导出 CSV" });
+    const exportBtn = el("button", { text: t("search.export_csv") });
     exportBtn.addEventListener("click", () => exportCSV(data));
     results.append(table, exportBtn);
   }
@@ -309,7 +310,7 @@ export async function render(view, params) {
         el("div", {}, [el("span", { class: "tag", text: m.display_name }), ` ${m.surface}`]),
         el("div", { class: "quote-box", text: `"${m.quote}"` }),
         el("a", { href: `#/papers/${p.paper_id}/decompose/${encodeURIComponent(m.reading_block_id)}`,
-          text: "原文段 ↗", title: "跳到拆解页并定位这一段原文" }),
+          text: t("papers.block_anchor_label"), title: t("papers.block_anchor_title") }),
       );
     }
   }

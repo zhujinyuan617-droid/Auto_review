@@ -1,5 +1,6 @@
 import { getJSON } from "/assets/api.js";
 import { el, clear, loading, empty, errorState } from "/assets/ui.js";
+import { t } from "/assets/i18n.js";
 
 export async function render(view) {
   loading(view);
@@ -11,10 +12,10 @@ export async function render(view) {
   }
   const edges = data.edges || [];
   clear(view);
-  view.append(el("h2", { text: `关系网 (${data.n_edges || edges.length} 条边)` }));
+  view.append(el("h2", { text: t("network.title", { n: data.n_edges || edges.length }) }));
 
   if (edges.length === 0) {
-    return empty(view, "关系数据未配置 —— 启动时未找到 edges.json(见设计文档配置接线)。");
+    return empty(view, t("network.no_data"));
   }
 
   const counts = data.relation_counts || {};
@@ -23,14 +24,14 @@ export async function render(view) {
   view.append(summary);
 
   const select = el("select", { class: "search" });
-  select.append(el("option", { value: "" }, "全部关系"));
+  select.append(el("option", { value: "" }, t("network.all_relations")));
   for (const t of types) select.append(el("option", { value: t }, t));
 
   const list = el("div", { class: "paper-list" });
   function draw(filter) {
     clear(list);
     const rows = edges.filter((e) => !filter || e.relation === filter);
-    if (rows.length === 0) { list.append(el("p", { class: "muted", text: "无匹配" })); return; }
+    if (rows.length === 0) { list.append(el("p", { class: "muted", text: t("network.no_match") })); return; }
     for (const e of rows.slice(0, 500)) {
       list.append(
         el("div", { class: "atom" }, [
@@ -43,7 +44,7 @@ export async function render(view) {
         ])
       );
     }
-    if (rows.length > 500) list.append(el("p", { class: "muted", text: `仅显示前 500 / 共 ${rows.length} 条` }));
+    if (rows.length > 500) list.append(el("p", { class: "muted", text: t("network.truncated", { n: rows.length }) }));
   }
   select.addEventListener("change", () => draw(select.value));
   view.append(select, list);
