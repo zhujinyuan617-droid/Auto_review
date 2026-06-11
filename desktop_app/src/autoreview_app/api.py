@@ -501,12 +501,11 @@ def create_app(
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
 
     @app.middleware("http")
-    async def _no_stale_assets(request, call_next):
-        # 本地桌面应用:前端脚本/样式禁用旧缓存(no-cache=每次向服务器核对,
-        # 未变走 304 不重传)。否则改完前端用户普通刷新仍看到旧界面。
+    async def _no_stale_responses(request, call_next):
+        # 本地桌面应用:所有响应禁用旧缓存(no-cache=每次向服务器核对,
+        # 未变走 304 不重传)。曾因浏览器启发式缓存,改完前端用户刷新仍看旧界面。
         resp = await call_next(request)
-        if request.url.path.startswith("/assets") or request.url.path == "/":
-            resp.headers["Cache-Control"] = "no-cache"
+        resp.headers.setdefault("Cache-Control", "no-cache")
         return resp
 
     return app
